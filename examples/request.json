@@ -1,0 +1,18 @@
+{
+  "model": "jev-latest",
+  "state": "I was charged twice. Please refund the duplicate.",
+  "questions": {
+    "department": {
+      "type": "choice",
+      "instructions": "Which team should handle this?",
+      "criteria": {
+        "billing": "Payments and refunds",
+        "technical": "Bugs and outages"
+      }
+    },
+    "refund_requested": {
+      "type": "noul",
+      "instructions": "Does the customer explicitly request a refund?"
+    }
+  }
+}

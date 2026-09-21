@@ -1,0 +1,8 @@
+/target/
+.DS_Store
+.env
+.env.*
+!.env.example
+/systemone.config.toml
+/models/
+/.cache/

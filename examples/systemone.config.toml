@@ -1,0 +1,39 @@
+# Proposed configuration contract; SystemOne is not implemented yet.
+# Precedence: built-ins < user file < CWD file < SYSTEMONE_* < CLI.
+default_backend = "local"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[backends.local]
+kind = "openjev"
+enabled = true
+model = "qwen3-0.6b"
+
+[backends.local.settings]
+device = "cpu"
+threads = 4
+
+# Opt in only when a Metal-enabled build is available on Apple Silicon:
+# device = "metal"
+
+[backends.cloud-vercel]
+kind = "vercel"
+enabled = false
+model = "jev-latest"
+
+[backends.cloud-vercel.settings]
+api_key_env = "AI_GATEWAY_API_KEY"
+
+[backends.cloud-openrouter]
+kind = "openrouter"
+enabled = false
+model = "jev-latest"
+
+[backends.cloud-openrouter.settings]
+api_key_env = "OPENROUTER_API_KEY"
+
+# Laya and GLiNER2 instances may be enabled only after their adapter/runtime
+# gates pass. Their artifact/device settings will be fixed by typed schemas
+# in M0 and their upstream library gates, not guessed in this example.
