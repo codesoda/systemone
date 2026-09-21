@@ -4,7 +4,7 @@
 
 Use runtime-defined **Choice**, **Noul** (probability of true), and **Score** questions with OpenJev, Laya, GLiNER2, or hosted Jev through **Vercel AI Gateway** and **OpenRouter**. Select a default backend in config, or override it for a request.
 
-> **Status: design/planning only.** This repository currently contains the architecture and cross-repo implementation plan—not a working binary, server, installer, or release. Commands and configuration below describe the intended interface.
+> **Status: M0–M2 implemented for the OpenJev backend; no release yet.** The `s1` binary, layered config, Jev-compatible HTTP service and the OpenJev adapter exist and were exercised against a real Metal model. Laya, GLiNER2, Vercel and OpenRouter adapters are still planned; enabling them is a clear configuration error. No installer or downloadable binary exists yet.
 
 ## Contents
 
@@ -44,35 +44,45 @@ All entries below are **planned SystemOne adapters**, not currently available in
 
 Enable only the instances you need. Disabled local backends do not load weights; disabled remote backends do not read credentials or send requests. Enabling an unavailable adapter or a model that cannot load must produce a clear startup error. There is **no silent local-to-cloud fallback**.
 
-## Planned installation and usage
+## Build and usage
 
-The release goal is downloadable binaries for **macOS, Linux, and Windows**, with separately documented accelerator support. No download or install command is available yet.
-
-Planned commands:
+The binary is `s1`. The release goal is downloadable binaries for **macOS, Linux, and Windows**; none exist yet, so build from source (Rust 1.95, plus CMake and a C/C++ toolchain for local inference):
 
 ```sh
-# Load enabled local models once; serve until stopped.
-systemone serve
-
-# Separate terminal: call the running server without loading models again.
-systemone call --url http://127.0.0.1:8080 --input request.json
-
-# One-shot local/remote execution through the same config and adapters.
-systemone run --input request.json
-cat request.json | systemone run --backend cloud-vercel
-
-# Inspect available backends and safely inspect configuration.
-systemone backends
-systemone models
-systemone config check
-systemone config show --redact
+# Remote-only / backend-disabled build: config, listing and HTTP plumbing, no llama.cpp.
+cargo build --release -p systemone-cli
+# Local OpenJev inference: CPU everywhere, Metal on Apple Silicon.
+cargo build --release -p systemone-cli --features native
+cargo build --release -p systemone-cli --features metal
 ```
 
-`serve` is a subcommand, not `--serve`. A one-shot `run` exits after its work; `call` reuses a resident server. Results go to stdout as JSON; logs go to stderr. `--pretty` formats JSON for people.
+```sh
+# Load enabled local models once; serve until SIGINT/SIGTERM.
+s1 serve
+
+# Separate terminal: call the running server without loading models again.
+s1 call --url http://127.0.0.1:8080 --input request.json
+
+# One-shot execution through the same config and adapters.
+s1 run --input request.json
+cat request.json | s1 run --backend local
+
+# Inspect backends (loads nothing), model stores and configuration.
+s1 backends
+s1 models --backend local
+s1 config check
+s1 config show
+
+# Host-specific tooling lives under the host's subcommand.
+s1 openjev models pull qwen3-0.6b
+s1 openjev probe --mode shared
+```
+
+`serve` is a subcommand, not `--serve`. A one-shot `run` exits after its work; `call` reuses a resident server. Results go to stdout as JSON; logs, errors and routing diagnostics go to stderr. `--pretty` formats JSON for people; `--set key=value` overrides any configuration leaf.
 
 ## Configuration
 
-Planned precedence, matching Discuss CLI's layering:
+Precedence, matching Discuss CLI's layering:
 
 **built-ins < user file < current-directory file < environment < CLI**
 
@@ -81,7 +91,7 @@ Planned precedence, matching Discuss CLI's layering:
 - Project file: `./systemone.config.toml` (current directory only; no ancestor search)
 - `--no-config` bypasses both config files and `SYSTEMONE_*` defaults. Explicitly selected remote credentials are still resolved when needed.
 
-SystemOne resolves configuration once and passes explicit typed settings into each adapter. It does **not** read the upstream CLIs' config files or shell out to those CLIs.
+SystemOne resolves configuration once and passes explicit typed settings into each adapter. It does **not** read `OPENJEV_*` variables or other upstream config files, and never shells out to upstream CLIs. `s1 config show` prints the merged result with per-leaf provenance.
 
 Illustrative configuration (also in [examples/systemone.config.toml](examples/systemone.config.toml)):
 
@@ -98,7 +108,7 @@ enabled = true
 model = "qwen3-0.6b"
 
 [backends.local.settings]
-device = "cpu"
+device = "cpu"      # or "metal" on a Metal build; a mismatch is a startup error
 threads = 4
 
 [backends.cloud-vercel]
@@ -122,7 +132,7 @@ For example, `SYSTEMONE_DEFAULT_BACKEND=cloud-vercel` selects that instance once
 
 ## HTTP API
 
-Planned routes:
+Routes:
 
 | Route | Purpose |
 | --- | --- |
@@ -163,26 +173,30 @@ curl -sS http://127.0.0.1:8080/v1/systemone \
 
 An ordinary Jev request uses the configured default backend. Add `"backend": "cloud-openrouter"` at the top level to select another **enabled** instance. This selector chooses the execution backend; `model` selects an allowed model within that backend. A disabled/unknown backend is an error, never an implicit fallback.
 
-Responses retain Jev's `model`, `answers`, and `usage` fields. Routing evidence goes in `x-systemone-*` response headers by default, keeping JSON compact. The adapter strips SystemOne's `backend` field before sending requests upstream. An optional `X-SystemOne-Backend` request header supports SDKs that cannot serialize the extra field; conflicting selectors are rejected.
+Responses retain Jev's `model`, `answers`, and `usage` fields. Routing evidence goes in `x-systemone-*` response headers (`backend`, `model`, `request-id`, `elapsed-ms`, `execution`, `fallback`, `probability-status`), keeping JSON compact. The adapter strips SystemOne's `backend` field before sending requests upstream. An optional `X-SystemOne-Backend` request header supports SDKs that cannot serialize the extra field; conflicting selectors are rejected.
 
 Vercel passthrough targets `https://ai-gateway.vercel.sh/typesafe/v1/systemone`; OpenRouter targets `https://openrouter.ai/api/v1/systemone`. Credentials stay on the server. Preserving provider fields, errors, usage and costs is part of the compatibility test gate—not a claim of compatibility already achieved.
 
 ## Architecture and cross-repo plan
 
 ```text
-CLI / HTTP / SDK clients
+CLI (s1) / HTTP / SDK clients
          │
          ▼
-SystemOne: config → validation → routing → bounded admission
+systemone-config → systemone-http (wire, registry, bounded admission)
          │
-         ├── OpenJev adapter ── openjev-core + openjev-llama
-         ├── Laya adapter ───── laya-rs inference library (to be built)
-         ├── GLiNER2 adapter ── gliner2-rs classification library
-         ├── Vercel adapter ── dedicated hosted Jev endpoint
-         └── OpenRouter adapter ─ dedicated hosted Jev endpoint
+         ▼   systemone-core: DecisionHost trait + neutral types
+         │
+         ├── systemone-openjev ── openjev-core + openjev-llama (git-pinned)   ✅
+         ├── Laya adapter ───── laya-rs inference library (to be built)      planned
+         ├── GLiNER2 adapter ── gliner2-rs classification library            planned
+         ├── Vercel adapter ── dedicated hosted Jev endpoint                  planned
+         └── OpenRouter adapter ─ dedicated hosted Jev endpoint               planned
 ```
 
-**Start here: [Cross-repo implementation plan, v1](docs/plans/cross-repo.md).**
+One trait connects a command or endpoint to a host: `DecisionHost { capabilities(), evaluate(), shutdown() }`. Host-specific abilities (for example a local model cache) are separate extension traits reached through `Backend::model_store() -> Extension<…>`, so every backend can report whether it supports an extension and why not—a hosted passthrough does not download models. `s1 backends` and `GET /v1/backends` expose that coverage.
+
+**Start here: [Cross-repo implementation plan, v1](docs/plans/cross-repo.md).** openjev-rs is pinned at `8452ef0` (its library-only revision; the former `openjev` CLI/server now live here).
 
 That document owns the shared contracts, work split, milestones, dependencies, verification gates and migration rules. Other repos should reference its stable URL or pin a commit for an implementation task instead of maintaining divergent copies.
 
@@ -198,7 +212,7 @@ Measure Python baselines first, then Rust library inference, then HTTP overhead 
 
 ## Contributing
 
-Implementation starts with contract tests and the OpenJev adapter, followed by the HTTP service and hosted passthrough. GLiNER2 and Laya require their upstream library gates first. See the [milestone checklist](docs/plans/cross-repo.md#9-milestones-and-acceptance-gates).
+Contract tests, the OpenJev adapter, the HTTP service and the CLI exist; hosted passthrough is next. GLiNER2 and Laya require their upstream library gates first. Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` (plus `--features metal`/`native` for the adapter) before submitting. See the [milestone checklist](docs/plans/cross-repo.md#9-milestones-and-acceptance-gates).
 
 Open an [issue](https://github.com/codesoda/systemone/issues) for proposed contract changes. Include affected repositories and compatibility tests. Do not commit model weights, credentials, private datasets or benchmark claims without reproducible evidence.
 

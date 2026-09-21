@@ -1,6 +1,6 @@
 # SystemOne cross-repo implementation plan
 
-**Contract version: 1 — planned, not implemented.**
+**Contract version: 1 — M0–M2 implemented for OpenJev; remaining adapters planned.**
 
 Canonical URL: <https://github.com/codesoda/systemone/blob/main/docs/plans/cross-repo.md>
 
@@ -24,13 +24,13 @@ Inspected source snapshots (these are observations, not a dependency lockfile):
 
 | Repository | Inspected HEAD | Actual boundary |
 | --- | --- | --- |
-| openjev-rs | `69c0c2b9e9ddb3f078c4dd7d636e65a5f9d593a9` | `openjev-core` and `openjev-llama` exist; CLI owns Jev HTTP projection and service policy |
+| openjev-rs | `8452ef0e5890497deb2cec95f16dc8d94d0c0c02` (pinned) | Library-only: `openjev-core` and `openjev-llama`. The former CLI/HTTP server was removed in this revision and reimplemented here |
 | laya-rs | `aa17c18ac4c28ff700f407b4a384b18a5d64e938` | Python baseline/assets/goldens; no Cargo workspace or Rust inference library yet |
 | gliner2-rs | `2883a7301d4de8e2af167e4ce2ca9d9d230f65d3` | Rust `gliner2-rs` package, imported as `gliner2_rs`; ONNX classification pipeline exists |
 
 The GLiNER checkout was locally named `gliners2`; its remote is codesoda/gliner2-rs. Do not mistake a local directory name for a different repository.
 
-OpenJev had uncommitted config work at inspection time. Do not depend on uncommitted code or claim it is available at the pinned HEAD. It is a design reference for SystemOne's config, not a reason to import the entire CLI crate. Existing standalone OpenJev config remains useful; new unified configuration belongs here.
+OpenJev's uncommitted Discuss-style config work was ported into `systemone-config` and discarded upstream; the standalone `openjev` CLI no longer exists.
 
 ### Usable APIs and prerequisites
 
@@ -221,24 +221,24 @@ Every implementation milestone ends with formatting, `cargo clippy --workspace -
 
 ### M0 — Contracts and build feasibility
 
-- [ ] Create workspace, neutral types/traits and fake adapters; pin dependency and SDK versions.
-- [ ] Define JSON/error/schema/rounding fixtures and typed config schemas for all five kinds.
-- [ ] Test defaults, per-request selection, body/header conflicts, model alias resolution, disabled/unknown backends, unsupported primitive, invalid distribution and redaction.
-- [ ] Check native dependency combinations across upstream repos; document minimum Rust/OS versions and feature matrix. No inference claims yet.
+- [x] Workspace (`systemone-core/config/openjev/http/cli`), neutral types, `DecisionHost`/`Backend`/`ModelStore` traits with `Extension` coverage, fake adapter for service tests; dependencies pinned exactly.
+- [x] Wire parsing/rounding tests and typed config schema; typed settings schema exists for `openjev` only. Vercel/OpenRouter/Laya/GLiNER2 kinds parse but construct as an explicit "not implemented in this build" error.
+- [x] Tests cover defaults, per-request selection, body/header conflicts, alias resolution, disabled/unknown backends, unsupported primitive rejection, invalid distributions and redacted `config show`.
+- [ ] Native dependency combinations across upstream repos (llama.cpp + ort) unchecked until GLiNER2 lands.
 
 ### M1 — OpenJev library adapter + one-shot CLI/config
 
-- [ ] Implement layered config and precedence test matrix (including ENV/CLI booleans, CWD-only, malformed overridden values, Windows paths, disabled secrets, no-config).
-- [ ] `systemone run --input file|-` uses upstream libraries directly; no CLI subprocess or model reload per question.
-- [ ] Compare native adapter to OpenJev reference outputs; preserve authored144 prompt_sha256/input_tokens exactness and existing numeric gates, probability strings and serial fallback. Prove config settings reach the actual engine.
-- [ ] Capture token/state validation limits in capabilities; test singleton, Noul polarity and ordinal Score mappings.
+- [x] Layered config with precedence tests (ENV/CLI booleans, CWD-only, malformed overridden values, no-config, `--set`). Windows path handling is coded (`%USERPROFILE%`) but untested on Windows.
+- [x] `s1 run --input file|-` uses the libraries directly; one load per invocation, one `evaluate` per request.
+- [x] Adapter preserves OpenJev prompts, honesty strings, receipt-gated shared execution and explicit serial fallback; settings reach `EngineOptions` verbatim. Real Metal run against cached qwen3-0.6b succeeded with disclosed `requested=shared; effective=serial`. Formal authored144 comparison through the adapter not yet rerun.
+- [x] Capabilities carry question/option/state limits; singleton Choice, Noul polarity (`yes` index 0) and ordinal Score mappings tested.
 
 ### M2 — Resident HTTP service and SDK compatibility
 
-- [ ] Implement routes, async bounded queue, auth, deadlines, graceful shutdown and `systemone call`.
-- [ ] Verify one model load across repeated calls, quiet JSON stdout, invalid-body/error shapes, queue overflow, cancelled queued work, in-flight permit lifetime, and one slow backend not blocking another.
-- [ ] Pin/run real Python and JavaScript TypeSafe SDK smoke tests against the local server; extension-free requests use the configured default. Test header-based routing where SDK bodies cannot carry extensions.
-- [ ] Record observed overhead against direct library calls; no invented target speedup.
+- [x] Routes, per-backend owner threads, process + per-instance bounded admission, bearer auth (constant-time), deadlines, SIGINT/SIGTERM drain and `s1 call`.
+- [x] Tests: one load across repeated calls, JSON-only stdout, invalid-body/error shapes, 429 overflow, 504 while queued with the permit held to completion, slow backend not blocking another, terminal errors flipping `/readyz`.
+- [ ] TypeSafe SDK smoke: JS fixture carried over to `compat/sdk-js/` but not yet run against `s1 serve`; Python SDK not pinned.
+- [ ] Observed overhead vs direct library calls not recorded.
 
 ### M3 — Hosted Jev passthrough (both gateways)
 

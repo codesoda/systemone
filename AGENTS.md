@@ -1,7 +1,8 @@
 # SystemOne contributor instructions
 
-Read README.md and docs/plans/cross-repo.md before implementation. This starts
-as a planning-only repository: do not describe proposed commands as shipped.
+Read README.md and docs/plans/cross-repo.md before implementation. The `s1`
+binary, config, HTTP service and OpenJev adapter are implemented; other
+adapters are planned. Do not describe planned adapters or releases as shipped.
 
 The cross-repo plan is canonical. Upstream libraries remain independent;
 SystemOne owns the common config, service, routing and backend adapters.

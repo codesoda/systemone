@@ -1,0 +1,37 @@
+[package]
+name = "systemone-cli"
+description = "s1: one CLI and Jev-compatible HTTP API for local and hosted decision models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "s1"
+path = "src/main.rs"
+
+[features]
+default = []
+# Local OpenJev inference (compiles llama.cpp).
+native = ["systemone-openjev/native"]
+metal = ["native", "systemone-openjev/metal"]
+cuda = ["native", "systemone-openjev/cuda"]
+
+[dependencies]
+clap.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+systemone-config.workspace = true
+systemone-core.workspace = true
+systemone-http.workspace = true
+systemone-openjev.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
