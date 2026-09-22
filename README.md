@@ -67,6 +67,15 @@ s1 call --url http://127.0.0.1:8080 --input request.json
 s1 run --input request.json
 cat request.json | s1 run --backend local
 
+# Flag-built one-shot questions (same output shape as run).
+s1 decide --state 'Charged twice.' --question 'Which team?' --option Billing --option Support
+printf 'Refund requested.' | s1 noul --question 'Does the customer want a refund?'
+s1 score --state-json '{"severity":3}' --question 'How urgent?' --level low --level medium --level high
+
+# Many requests, one model load: one JSON Lines row in, one row out (response
+# or {"line":N,"error":{...}}); exit 1 if any row failed.
+s1 run --jsonl --input requests.jsonl --output answers.jsonl
+
 # Inspect backends (loads nothing), model stores and configuration.
 s1 backends
 s1 models --backend local

@@ -2,10 +2,14 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-const ROOT_AFTER_HELP: &str = r"Examples:
+const ROOT_AFTER_HELP: &str = r#"Examples:
   s1 serve
   s1 run --input request.json
+  s1 run --jsonl --input requests.jsonl --output answers.jsonl
   cat request.json | s1 run --backend cloud-vercel
+  s1 decide --state 'Charged twice.' --question 'Which team?' --option Billing --option Support
+  printf 'Refund requested.' | s1 noul --question 'Does the customer want a refund?'
+  s1 score --state-json '{"severity":3}' --question 'How urgent?' --level low --level medium --level high
   s1 call --url http://127.0.0.1:8080 --input request.json
   s1 backends
   s1 models --backend local
@@ -15,7 +19,7 @@ const ROOT_AFTER_HELP: &str = r"Examples:
 Configuration precedence: built-ins < ~/.systemone/systemone.config.toml <
 ./systemone.config.toml < SYSTEMONE_* < CLI (--set, --host, ...).
 --no-config ignores both files and SYSTEMONE_* defaults.
-stdout is JSON only; logs and errors go to stderr.";
+stdout is JSON only; logs and errors go to stderr."#;
 
 #[derive(Clone, Debug, Parser)]
 #[command(
@@ -51,8 +55,14 @@ pub struct GlobalArgs {
 pub enum Command {
     /// Load enabled backends once and serve the Jev-compatible HTTP API.
     Serve(ServeArgs),
-    /// Evaluate one request file in-process through the configured adapters.
+    /// Evaluate one request file (or JSONL of requests) in-process.
     Run(RunArgs),
+    /// One-shot Choice question(s) built from flags.
+    Decide(DecideArgs),
+    /// One-shot Noul (yes/no probability) question built from flags.
+    Noul(NoulArgs),
+    /// One-shot Score (ordinal rubric) question built from flags.
+    Score(ScoreArgs),
     /// Send one request file to a running s1 server.
     Call(CallArgs),
     /// List configured backends and their extension coverage (loads nothing).
@@ -85,6 +95,96 @@ pub struct RunArgs {
     #[arg(long)]
     pub input: Option<PathBuf>,
     /// Backend instance to use; must agree with any selector in the file.
+    #[arg(long)]
+    pub backend: Option<String>,
+    /// Treat input as JSON Lines: one request per line, one model load,
+    /// one output line per request (a response or a `{"line","error"}` row).
+    #[arg(long)]
+    pub jsonl: bool,
+    /// Write results here instead of stdout (JSONL mode only).
+    #[arg(long, requires = "jsonl")]
+    pub output: Option<PathBuf>,
+}
+
+/// Decision state from exactly one source; text on piped stdin otherwise.
+#[derive(Clone, Debug, Default, Args)]
+pub struct StateArgs {
+    /// State as plain text.
+    #[arg(long, conflicts_with_all = ["state_file", "state_json", "state_json_file"])]
+    pub state: Option<String>,
+    /// State as plain text read from a file.
+    #[arg(long, conflicts_with_all = ["state", "state_json", "state_json_file"])]
+    pub state_file: Option<PathBuf>,
+    /// State as a JSON value (strict: no duplicate keys).
+    #[arg(long, conflicts_with_all = ["state", "state_file", "state_json_file"])]
+    pub state_json: Option<String>,
+    /// State as a JSON value read from a file.
+    #[arg(long, conflicts_with_all = ["state", "state_file", "state_json"])]
+    pub state_json_file: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Args)]
+#[command(
+    after_help = "Examples:\n  s1 decide --state 'Charged twice.' --question 'Which team?' --option Billing --option Support\n  s1 decide --state-json '{\"severity\":3}' --question 'Escalate?' --option-id yes --option 'Escalate now' --option-id no --option 'Handle normally'"
+)]
+pub struct DecideArgs {
+    /// Question text; repeat to ask several questions over the same state and options.
+    #[arg(long, required = true)]
+    pub question: Vec<String>,
+    /// Option text; repeat for each option (1–16). Used as the label unless --option-id is given.
+    #[arg(long, required = true)]
+    pub option: Vec<String>,
+    /// Option labels, aligned with --option; then --option text becomes the description.
+    #[arg(long)]
+    pub option_id: Vec<String>,
+    /// Question ID (default: q-1; with several questions: ID/1, ID/2, ...).
+    #[arg(long)]
+    pub id: Option<String>,
+    #[command(flatten)]
+    pub state: StateArgs,
+    #[arg(long)]
+    pub backend: Option<String>,
+}
+
+#[derive(Clone, Debug, Args)]
+#[command(
+    after_help = "Example:\n  printf 'Refund requested.' | s1 noul --question 'Does the customer want a refund?'"
+)]
+pub struct NoulArgs {
+    /// Proposition to evaluate.
+    #[arg(long)]
+    pub question: String,
+    /// Optional description of the true outcome.
+    #[arg(long = "true", value_name = "TEXT")]
+    pub true_description: Option<String>,
+    /// Optional description of the false outcome.
+    #[arg(long = "false", value_name = "TEXT")]
+    pub false_description: Option<String>,
+    /// Question ID (default: q-1).
+    #[arg(long)]
+    pub id: Option<String>,
+    #[command(flatten)]
+    pub state: StateArgs,
+    #[arg(long)]
+    pub backend: Option<String>,
+}
+
+#[derive(Clone, Debug, Args)]
+#[command(
+    after_help = "Example:\n  s1 score --state-json '{\"severity\":3}' --question 'How urgent?' --level low --level medium --level high\n\nLevels are ordinal: the first is 0, the last is n-1, as in the Jev API."
+)]
+pub struct ScoreArgs {
+    /// Scoring instructions.
+    #[arg(long)]
+    pub question: String,
+    /// Ordered level descriptions (2–16); the index is the score value.
+    #[arg(long, required = true)]
+    pub level: Vec<String>,
+    /// Question ID (default: q-1).
+    #[arg(long)]
+    pub id: Option<String>,
+    #[command(flatten)]
+    pub state: StateArgs,
     #[arg(long)]
     pub backend: Option<String>,
 }

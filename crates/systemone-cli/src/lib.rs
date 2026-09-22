@@ -269,6 +269,15 @@ fn execute<R: Read, W: Write, E: Write>(
         Command::Call(args) => {
             commands::call(&resolved, &args, stdin, stdin_is_terminal, stdout, stderr)
         }
+        Command::Decide(args) => {
+            commands::decide(&resolved, &args, stdin, stdin_is_terminal, stdout, stderr)
+        }
+        Command::Noul(args) => {
+            commands::noul(&resolved, &args, stdin, stdin_is_terminal, stdout, stderr)
+        }
+        Command::Score(args) => {
+            commands::score(&resolved, &args, stdin, stdin_is_terminal, stdout, stderr)
+        }
         Command::Backends => commands::backends(&resolved, stdout),
         Command::Models(args) => commands::models(&resolved, &args, stdout),
         Command::Config(args) => commands::config(&resolved, &args.command, stdout),

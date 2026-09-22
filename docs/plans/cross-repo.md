@@ -229,7 +229,7 @@ Every implementation milestone ends with formatting, `cargo clippy --workspace -
 ### M1 — OpenJev library adapter + one-shot CLI/config
 
 - [x] Layered config with precedence tests (ENV/CLI booleans, CWD-only, malformed overridden values, no-config, `--set`). Windows path handling is coded (`%USERPROFILE%`) but untested on Windows.
-- [x] `s1 run --input file|-` uses the libraries directly; one load per invocation, one `evaluate` per request.
+- [x] `s1 run --input file|-` uses the libraries directly; one load per invocation, one `evaluate` per request. `s1 run --jsonl` evaluates many requests through one load with per-row error rows; `s1 decide|noul|score` build requests from flags.
 - [x] Adapter preserves OpenJev prompts, honesty strings, receipt-gated shared execution and explicit serial fallback; settings reach `EngineOptions` verbatim. Real Metal run against cached qwen3-0.6b succeeded with disclosed `requested=shared; effective=serial`. Formal authored144 comparison through the adapter not yet rerun.
 - [x] Capabilities carry question/option/state limits; singleton Choice, Noul polarity (`yes` index 0) and ordinal Score mappings tested.
 
@@ -237,7 +237,7 @@ Every implementation milestone ends with formatting, `cargo clippy --workspace -
 
 - [x] Routes, per-backend owner threads, process + per-instance bounded admission, bearer auth (constant-time), deadlines, SIGINT/SIGTERM drain and `s1 call`.
 - [x] Tests: one load across repeated calls, JSON-only stdout, invalid-body/error shapes, 429 overflow, 504 while queued with the permit held to completion, slow backend not blocking another, terminal errors flipping `/readyz`.
-- [ ] TypeSafe SDK smoke: JS fixture carried over to `compat/sdk-js/` but not yet run against `s1 serve`; Python SDK not pinned.
+- [x] TypeSafe JS SDK 0.6.0 smoke (`compat/sdk-js/`) passes against `s1 serve` on Metal with qwen3-0.6b; it caught and fixed a 404-vs-422 regression for unknown models. Python SDK not pinned.
 - [ ] Observed overhead vs direct library calls not recorded.
 
 ### M3 — Hosted Jev passthrough (both gateways)

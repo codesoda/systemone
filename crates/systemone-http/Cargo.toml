@@ -16,6 +16,10 @@ systemone-core.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+[features]
+# Expose the deterministic fake backend to downstream tests.
+test-support = []
+
 [dev-dependencies]
 futures-util.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }

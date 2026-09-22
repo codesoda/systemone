@@ -330,3 +330,95 @@ fn call_rejects_malformed_input_before_any_network_request() {
             .contains("invalid_json")
     );
 }
+
+#[test]
+fn one_shot_flag_commands_validate_before_loading() {
+    // Missing state with no piped stdin.
+    let (code, _, stderr) = run(
+        &["--no-config", "noul", "--question", "Refund?"],
+        "",
+        &[],
+        None,
+    );
+    assert_eq!(code, 2);
+    assert!(
+        stderr_json(&stderr)["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("state is required")
+    );
+    // Conflicting state sources are a clap usage error (exit 2, JSON stderr).
+    let (code, _, stderr) = run(
+        &[
+            "--no-config",
+            "decide",
+            "--state",
+            "a",
+            "--state-json",
+            "1",
+            "--question",
+            "q",
+            "--option",
+            "x",
+        ],
+        "",
+        &[],
+        None,
+    );
+    assert_eq!(code, 2);
+    assert!(stderr_json(&stderr)["error"].is_object());
+    // Misaligned --option-id.
+    let (code, _, stderr) = run(
+        &[
+            "--no-config",
+            "decide",
+            "--state",
+            "a",
+            "--question",
+            "q",
+            "--option",
+            "x",
+            "--option",
+            "y",
+            "--option-id",
+            "only",
+        ],
+        "",
+        &[],
+        None,
+    );
+    assert_eq!(code, 2);
+    assert!(
+        stderr_json(&stderr)["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("--option-id count")
+    );
+    // A single score level is rejected by the neutral validator.
+    let (code, _, stderr) = run(
+        &[
+            "--no-config",
+            "score",
+            "--state",
+            "a",
+            "--question",
+            "q",
+            "--level",
+            "only",
+        ],
+        "",
+        &[],
+        None,
+    );
+    assert_eq!(code, 2);
+    assert_eq!(stderr_json(&stderr)["error"]["code"], "validation");
+    // --output requires --jsonl.
+    let (code, _, stderr) = run(
+        &["--no-config", "run", "--output", "/tmp/x.jsonl"],
+        r#"{"state":"s","questions":{"q":{"type":"noul"}}}"#,
+        &[],
+        None,
+    );
+    assert_eq!(code, 2);
+    assert!(stderr_json(&stderr)["error"].is_object());
+}

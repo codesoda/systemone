@@ -13,5 +13,5 @@ pub use registry::{Evaluated, Registry, RegistryEntry};
 pub use server::{AppState, ServeOptions, router, run};
 pub use wire::{ParsedRequest, SystemOneBody, WireError, parse_request, render_response};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
