@@ -17,7 +17,8 @@ workflow.
 - OpenJev backend over `openjev-core`/`openjev-llama` pinned by Git revision,
   with receipt-gated shared execution and explicit serial fallback.
 - Laya backend (`systemone-laya`, `kind = "laya"`) over `laya-core` pinned by
-  Git revision, behind the `laya-cpu` (Candle) and `laya-metal` (MLX) features.
+  Git revision, behind the `laya-cpu` (Candle), `laya-accelerate` (Candle + Apple BLAS) and
+  `laya-metal` (MLX) features.
   One batched forward pass per request, SHA-256-verified profile directories,
   Metal warm-up at load, deterministic one-option Choice, empty-string default
   for missing instructions, and `x-systemone-truncation` disclosure. Verified

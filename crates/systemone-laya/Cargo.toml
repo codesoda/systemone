@@ -12,9 +12,11 @@ default = []
 # Link the laya-core runtime. Without it the adapter validates settings and
 # reports `available = false`; `load` fails explicitly.
 laya = ["dep:laya-core"]
-# Backends inside laya-core. `laya-metal` is macOS-only (MLX); `laya-cpu`
-# is portable (Candle, fp32).
-laya-cpu = ["laya", "laya-core/candle-accelerate"]
+# Backends inside laya-core. `laya-cpu` is portable (Candle, fp32, no BLAS).
+# `laya-accelerate` adds Apple's Accelerate BLAS to it (macOS only).
+# `laya-metal` is macOS-only (MLX).
+laya-cpu = ["laya", "laya-core/candle"]
+laya-accelerate = ["laya-cpu", "laya-core/candle-accelerate"]
 laya-metal = ["laya", "laya-core/mlx"]
 
 [dependencies]

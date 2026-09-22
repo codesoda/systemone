@@ -190,9 +190,10 @@ Keep CPU and Metal builds in separate target directories. Plain `cargo build`
 deliberately omits llama.cpp: configuration, listing and the HTTP plumbing
 work, but local inference returns `unavailable`.
 
-Add `laya-cpu` (any platform, Candle) or `laya-metal` (Apple Silicon, compiles
-MLX from source; needs CMake) to the feature list for the Laya backend, for
-example `--features metal,laya-metal`. The build-time environment MLX needs is
+Add `laya-cpu` (any platform, Candle without BLAS), `laya-accelerate` (macOS,
+adds Apple's Accelerate BLAS) or `laya-metal` (Apple Silicon, MLX compiled from
+source; needs CMake, includes `laya-accelerate`) to the feature list for the
+Laya backend, for example `--features metal,laya-metal`. The build-time environment MLX needs is
 set in `.cargo/config.toml`.
 
 </details>

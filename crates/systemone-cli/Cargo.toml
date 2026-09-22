@@ -20,7 +20,8 @@ cuda = ["native", "systemone-openjev/cuda"]
 # Local Laya inference. `laya-cpu` is portable (Candle); `laya-metal` is
 # macOS-only (MLX) and also enables the CPU backend for mixed configs.
 laya-cpu = ["systemone-laya/laya-cpu"]
-laya-metal = ["laya-cpu", "systemone-laya/laya-metal"]
+laya-accelerate = ["laya-cpu", "systemone-laya/laya-accelerate"]
+laya-metal = ["laya-accelerate", "systemone-laya/laya-metal"]
 
 [dependencies]
 clap.workspace = true
