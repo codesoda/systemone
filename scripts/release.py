@@ -342,10 +342,44 @@ def build_parser():
     verify.add_argument("--skip-execute", action="store_true")
     verify.add_argument("--check-linkage", action="store_true")
 
+    notes = subparsers.add_parser("notes", help="print the CHANGELOG.md section for a release tag")
+    notes.add_argument("--tag", required=True)
+
     checksums = subparsers.add_parser("checksums", help="write SHA256SUMS for both release archives")
     checksums.add_argument("--output", required=True)
     checksums.add_argument("archives", nargs="+")
     return parser
+
+
+def changelog_section(changelog_text, version):
+    """Return the body of the `## [version]` section of a Keep a Changelog file."""
+    heading = re.compile(r"^## \[(?P<version>[^\]]+)\]")
+    lines = changelog_text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        match = heading.match(line)
+        if match and match.group("version") == version:
+            start = index + 1
+            break
+    if start is None:
+        fail("CHANGELOG.md has no '## [%s]' section" % version)
+    body = []
+    for line in lines[start:]:
+        if heading.match(line):
+            break
+        body.append(line)
+    text = "\n".join(body).strip()
+    if not text:
+        fail("CHANGELOG.md section for %s is empty" % version)
+    return text + "\n"
+
+
+def notes_command(args):
+    repo_root = Path(args.repo_root).resolve()
+    version = workspace_version(repo_root)
+    validate_ref("refs/tags/" + args.tag, version, require_tag=True)
+    changelog = (repo_root / "CHANGELOG.md").read_text(encoding="utf-8")
+    sys.stdout.write(changelog_section(changelog, version))
 
 
 def validate_ref_command(args):
@@ -359,6 +393,7 @@ COMMANDS = {
     "package": package_archive,
     "verify": verify_archive,
     "checksums": write_checksums,
+    "notes": notes_command,
 }
 
 

@@ -214,3 +214,24 @@ class ReleasePackagingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChangelogNotesTests(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+
+        if str(RELEASE_SCRIPT.parent) not in sys.path:
+            sys.path.insert(0, str(RELEASE_SCRIPT.parent))
+        spec = importlib.util.spec_from_file_location("systemone_release", RELEASE_SCRIPT)
+        self.release = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.release)
+
+    def test_section_is_extracted_between_headings(self):
+        text = "# Changelog\n\n## [Unreleased]\n\n- soon\n\n## [0.1.0] - 2026-09-22\n\n### Added\n\n- thing\n\n## [0.0.1]\n\n- old\n"
+        self.assertEqual(self.release.changelog_section(text, "0.1.0"), "### Added\n\n- thing\n")
+
+    def test_missing_or_empty_section_fails(self):
+        with self.assertRaises(self.release.ReleaseError):
+            self.release.changelog_section("## [0.2.0]\n\n- x\n", "0.1.0")
+        with self.assertRaises(self.release.ReleaseError):
+            self.release.changelog_section("## [0.1.0]\n\n## [0.0.1]\n- x\n", "0.1.0")

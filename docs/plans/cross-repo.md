@@ -1,6 +1,6 @@
 # SystemOne cross-repo implementation plan
 
-**Contract version: 1 — M0–M2 implemented for OpenJev; remaining adapters planned.**
+**Contract version: 1 — M0–M2 implemented for OpenJev; remaining milestones tracked as GitHub issues.**
 
 Canonical URL: <https://github.com/codesoda/systemone/blob/main/docs/plans/cross-repo.md>
 
@@ -215,68 +215,22 @@ Adapter extraction sequence:
 
 Native FFIs may link conflicting ONNX/BLAS/OpenMP/CUDA/Metal dependencies. Prove feature combinations build and initialize together early. Default remote-only build must not link local native runtimes. Offer documented platform/backend feature bundles if a single all-backend binary cannot be shipped safely; do not advertise unsupported combinations.
 
-## 9. Milestones and acceptance gates
+## 9. Milestones and status
 
-Every implementation milestone ends with formatting, `cargo clippy --workspace --all-targets -- -D warnings`, workspace tests, the relevant feature/platform checks, a progress entry and a commit. Mark model-dependent tests as explicitly skipped when prerequisites are missing; do not count skips as inference evidence. Review this plan at each gate; stop on failed semantics and record evidence rather than weakening tests.
+Every milestone ends with formatting, `cargo clippy --workspace --all-targets -- -D warnings`, workspace tests, the relevant feature/platform checks, a `CHANGELOG.md` entry and a commit. Mark model-dependent tests as explicitly skipped when prerequisites are missing; do not count skips as inference evidence. Stop on failed semantics and record evidence rather than weakening tests.
 
-### M0 — Contracts and build feasibility
+| Milestone | Status | Where |
+| --- | --- | --- |
+| M0 Contracts and build feasibility | Done except the llama.cpp + ort linker check | [CHANGELOG](../../CHANGELOG.md), issues |
+| M1 OpenJev adapter, one-shot CLI, config | Done | [CHANGELOG](../../CHANGELOG.md) |
+| M2 Resident HTTP service, SDK compatibility | Done (JS SDK); Python SDK and overhead measurement open | [CHANGELOG](../../CHANGELOG.md), issues |
+| M3 Hosted Jev passthrough (Vercel, OpenRouter) | Planned | GitHub issues |
+| M4 GLiNER2 adapter | Planned; needs upstream library gate | GitHub issues |
+| M5 Laya Python baseline → Rust runtime → adapter | Planned; needs laya-rs | GitHub issues |
+| M6 Cross-backend quality and performance | Planned | GitHub issues |
+| M7 Portable releases (Windows, signing, clean-machine smoke) | macOS/Linux archives ship; rest planned | GitHub issues |
 
-- [x] Workspace (`systemone-core/config/openjev/http/cli`), neutral types, `DecisionHost`/`Backend`/`ModelStore` traits with `Extension` coverage, fake adapter for service tests; dependencies pinned exactly.
-- [x] Wire parsing/rounding tests and typed config schema; typed settings schema exists for `openjev` only. Vercel/OpenRouter/Laya/GLiNER2 kinds parse but construct as an explicit "not implemented in this build" error.
-- [x] Tests cover defaults, per-request selection, body/header conflicts, alias resolution, disabled/unknown backends, unsupported primitive rejection, invalid distributions and redacted `config show`.
-- [ ] Native dependency combinations across upstream repos (llama.cpp + ort) unchecked until GLiNER2 lands.
-
-### M1 — OpenJev library adapter + one-shot CLI/config
-
-- [x] Layered config with precedence tests (ENV/CLI booleans, CWD-only, malformed overridden values, no-config, `--set`). Windows path handling is coded (`%USERPROFILE%`) but untested on Windows.
-- [x] `s1 run --input file|-` uses the libraries directly; one load per invocation, one `evaluate` per request. `s1 run --jsonl` evaluates many requests through one load with per-row error rows; `s1 decide|noul|score` build requests from flags.
-- [x] Adapter preserves OpenJev prompts, honesty strings, receipt-gated shared execution and explicit serial fallback; settings reach `EngineOptions` verbatim. Real Metal run against cached qwen3-0.6b succeeded with disclosed `requested=shared; effective=serial`. Formal authored144 comparison through the adapter not yet rerun.
-- [x] Capabilities carry question/option/state limits; singleton Choice, Noul polarity (`yes` index 0) and ordinal Score mappings tested.
-
-### M2 — Resident HTTP service and SDK compatibility
-
-- [x] Routes, per-backend owner threads, process + per-instance bounded admission, bearer auth (constant-time), deadlines, SIGINT/SIGTERM drain and `s1 call`.
-- [x] Tests: one load across repeated calls, JSON-only stdout, invalid-body/error shapes, 429 overflow, 504 while queued with the permit held to completion, slow backend not blocking another, terminal errors flipping `/readyz`.
-- [x] TypeSafe JS SDK 0.6.0 smoke (`compat/sdk-js/`) passes against `s1 serve` on Metal with qwen3-0.6b; it caught and fixed a 404-vs-422 regression for unknown models. Python SDK not pinned.
-- [ ] Observed overhead vs direct library calls not recorded.
-
-### M3 — Hosted Jev passthrough (both gateways)
-
-- [ ] Implement Vercel and OpenRouter adapters with mock success/error/timeout/429/malformed/oversize fixtures.
-- [ ] Test selectors stripped, secrets isolated/redacted, no redirects/retries/fallback, provider fields/cost/model identity preserved and catalogue normalized.
-- [ ] Test CPU-local default with per-request remote override and remote-only build without model downloads.
-- [ ] Opt-in real HTTP/SDK smoke for each provider with explicit bounded spend; record provider/model/date and limitations. Mock passes alone do not establish live compatibility.
-
-### M4 — GLiNER library prerequisite + adapter
-
-- [ ] Upstream full-distribution and runtime-options API merged/pinned; valid model/classifier assets pinned.
-- [ ] Compare adapter distributions with upstream Python/ONNX and Rust reference outputs; reject thresholded sigmoid misuse.
-- [ ] Evaluate runtime-defined Choice/Noul/Score on held-out tasks; document instruction support and derived Score limitations. Extraction API remains upstream, outside the initial Jev contract.
-- [ ] Do not call missing-model tests successful inference or claim GLiNER2.5 compatibility without checkpoint verification.
-
-### M5 — Laya Python baseline → Rust runtime → adapter
-
-- [ ] First finish pinned Python reference benchmarks and goldens for all selected checkpoints (English, multilingual, typed-decisions).
-- [ ] Run Python CPU and available accelerator baseline locally; also measure pinned Laya-MLX on the same Apple machine if supported. Record environment, tokens, context/head budgets, precision and synchronization.
-- [ ] In laya-rs, complete numerical architecture/tokenizer/head/calibration parity before integrating. Investigate Rust-compatible Metal/MLX/Candle/ONNX paths against actual operator coverage and distributability; record chosen runtime and rejected alternatives.
-- [ ] Integrate only the passing runtime profiles; batch independent question rows and test precision/truncation/polarity. A Python sidecar may be an explicit research baseline, never advertised as the Rust binary implementation.
-- [ ] Benchmark Rust library and HTTP on the identical workload with measured results, not an assumed Rust speedup.
-
-### M6 — Cross-backend quality and performance
-
-- [ ] Common versioned fixtures: Authored144/Perturbations108 where supported, Laya fixtures and representative agent routing/guardrail/triage domains. Retain native formatting requirements; record unsupported cases instead of truncating to hide differences.
-- [ ] Quality: accuracy/balanced accuracy, Noul Brier/NLL/ECE, Score MAE and rank behavior, calibration on a separate split, per-domain/per-language/per-option-count results. Do not compare different test splits as if matched.
-- [ ] Performance: cold download/load separately; warm p50/p95/p99, throughput, peak RAM/device memory, queue wait versus compute, end-to-end HTTP/network separately. Cases: 1, 5, 10, 21 and 50 questions; varied state lengths/option counts; concurrency 1/4/16; explicit OOM/limit outcomes.
-- [ ] Record hardware/OS/runtime/commit/model hashes/precision, warmups/repeats/raw samples and GPU synchronization. Compare Python vs Rust on the same machine first; compare published T4/M3 Max figures only as external context.
-- [ ] Preserve benchmark and holdout isolation. Recalibrate only with explicit model/domain/version provenance; no promise of cross-backend confidence equivalence.
-
-### M7 — Portable releases, docs and migration
-
-- [ ] CI unit/config/HTTP mock tests on macOS arm64, Linux x86_64 and Windows x86_64; supported native profiles build/link/load tests. Mark additional architectures/accelerators experimental until tested.
-- [ ] Integration/model tests explicit opt-in; CPU baseline for each claimed backend/OS, Metal on supported Apple Silicon; CUDA/other providers separate verified artifacts or features.
-- [ ] Produce tagged binaries, checksums, licenses/notices, signed/notarized artifacts where feasible, installation/upgrade docs and Unix/PowerShell installers. Unix layout: `~/.systemone/bin` with `~/.local/bin/systemone` link; Windows user-local install with clear PATH instructions.
-- [ ] Download release artifacts on clean machines and smoke `run`, resident `serve` + SDK/client, config, shutdown and offline cache use. Verify runtime DLL/shared-library availability; do not depend on developer Python or toolchain installs.
-- [ ] README removes planning-only notices only for delivered commands/backends. Publish supported matrix, quality caveats and migration examples. Add canonical cross-repo plan links upstream through separate reviewed changes.
+Completed work is described in `CHANGELOG.md`. Remaining work is tracked as [GitHub issues](https://github.com/codesoda/systemone/issues); each issue carries the acceptance gate that used to live in this section. Do not add new checklists here.
 
 ## 10. Laya optimization research policy
 

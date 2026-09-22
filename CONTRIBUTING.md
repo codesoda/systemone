@@ -1,0 +1,110 @@
+# Contributing to SystemOne
+
+Thank you for contributing.
+
+## Ground rules
+
+- The project uses the [MIT License](LICENSE). Contributions use the same
+  license. There is no CLA.
+- Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+- Keep pull requests focused, reviewable, and reversible.
+- Read [README.md](README.md) and the
+  [cross-repo plan](docs/plans/cross-repo.md) before you change shared
+  semantics. The plan is canonical for the backend contract, configuration
+  layering, routing, and wire compatibility. Change the plan and the affected
+  tests in the same pull request.
+- Track future work as GitHub issues. Record shipped work in
+  [CHANGELOG.md](CHANGELOG.md) under `Unreleased`.
+
+## What SystemOne promises
+
+These rules protect users. A pull request that weakens one of them will not be
+merged.
+
+- **No silent fallback.** Never fall back to a cloud backend, a different
+  device, a different model, or a different execution mode without telling the
+  caller. Fail with a clear error, or disclose the fallback in the response
+  headers and CLI diagnostics, as the OpenJev adapter does for shared → serial.
+- **JSON-only stdout.** Result commands write one JSON document to stdout.
+  Logs, diagnostics, and errors go to stderr as JSON records. Exit code 2 is a
+  validation or usage error; exit code 1 is a runtime error.
+- **Honest status.** Do not describe planned adapters, platforms, or releases
+  as shipped. A test that skips because a model is missing is not evidence of
+  inference. Do not weaken an upstream parity gate to make an optimization
+  pass.
+- **Pinned upstreams.** `openjev-core` and `openjev-llama` are Git
+  dependencies pinned to a reviewed revision. Do not release with sibling
+  `path` dependencies or with uncommitted upstream changes.
+- **Nothing sensitive in the repository.** Never commit credentials, model
+  weights, private request data, probe receipts from real runs, or fabricated
+  results. Use synthetic fixtures.
+
+## Development checks
+
+Rust 1.95 is pinned by `rust-toolchain.toml`. The default build compiles no
+llama.cpp and runs offline; `native`, `metal`, and `cuda` on `systemone-cli`
+add local inference and need CMake plus a C/C++ toolchain.
+
+Run these before you push:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+python3 scripts/check_third_party_licenses.py
+aislop ci
+```
+
+If you touch the adapter, the HTTP service, or anything under `crates/`, also
+build and run the native feature once. On Apple Silicon:
+
+```sh
+cargo clippy -p systemone-cli --all-targets --features metal -- -D warnings
+cargo build -p systemone-cli --features metal
+```
+
+CI runs the same checks on Linux for every pull request. The macOS build runs
+only for release tags.
+
+### Changing dependencies
+
+`Cargo.lock` is committed and every dependency is pinned exactly. When the lock
+file changes, regenerate the third-party notice bundle and commit the result:
+
+```sh
+python3 scripts/generate_third_party_licenses.py   # needs cargo-about 0.9.2 and network
+python3 scripts/check_third_party_licenses.py
+```
+
+See [THIRD_PARTY.md](THIRD_PARTY.md) for what the bundle contains and why the
+`licenses/` directory exists.
+
+### Changing the demo
+
+The README animation is a staged VHS walkthrough under `demo/`. It executes
+nothing. Keep `demo/scenes.json` and `docs/demo.md` in sync; `demo/test_session.py`
+checks that. Re-record with `bash demo/record.sh`.
+
+## Pull requests
+
+- Explain the user outcome, what changed, and how you checked it. Say what is
+  not verified.
+- Add or update tests for behavior you change. Service and CLI tests use the
+  fake backend in `systemone-http::test_support`; they need no model.
+- Write comments in ASD-STE100 Simplified Technical English: active voice,
+  present tense, one idea per sentence. Add a comment only for information the
+  code cannot show.
+- Do not suppress dead-code or deprecated-code lints. Remove the code or
+  replace the API. A suppression needs an explanation and maintainer agreement.
+
+## Releases
+
+Maintainers cut releases. See [docs/RELEASE.md](docs/RELEASE.md) for what a
+release contains and how it is verified. To release version `X.Y.Z`:
+
+1. Set `version` in `Cargo.toml` (`[workspace.package]`).
+2. Rename the `Unreleased` section of `CHANGELOG.md` to `[X.Y.Z]` and add the
+   date.
+3. Merge to `main`, then push the tag `vX.Y.Z`. CI builds both targets and
+   publishes the release with notes taken from the changelog section.

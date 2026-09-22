@@ -1,120 +1,424 @@
+<a id="readme-top"></a>
+
 # SystemOne
 
-**One CLI and Jev-compatible HTTP API for local and hosted decision models.**
+<a href="docs/demo.md"><img src="docs/demo.gif" alt="s1 walkthrough: start the server, send two curl requests, and see typed JSON responses" width="100%"></a>
 
-Use runtime-defined **Choice**, **Noul** (probability of true), and **Score** questions with OpenJev, Laya, GLiNER2, or hosted Jev through **Vercel AI Gateway** and **OpenRouter**. Select a default backend in config, or override it for a request.
+**One CLI and one Jev-compatible HTTP API for local and hosted decision models.**
 
-> **Status: M0–M2 implemented for the OpenJev backend; binary releases are produced by CI on `v*` tags.** The `s1` binary, layered config, Jev-compatible HTTP service and the OpenJev adapter exist and were exercised against a real Metal model, including the official TypeSafe JS SDK. Laya, GLiNER2, Vercel and OpenRouter adapters are still planned; enabling them is a clear configuration error. Only the Apple Silicon build has been run with real weights; the Linux build is compiled, tested without models and linkage-checked in CI.
+Run `s1` once from the command line, or start `s1 serve` to keep models loaded
+behind a Jev-compatible HTTP API. Both return typed JSON—no generated prose to
+parse. Point your application at `s1` once; change the decision model in
+configuration, not in code.
 
-## Contents
+[Download a release](https://github.com/codesoda/systemone/releases)
+· [Demo](docs/demo.md)
+· [Report a bug](https://github.com/codesoda/systemone/issues)
+· [Request a feature](https://github.com/codesoda/systemone/issues/new)
 
-- [Why a separate project?](#why-a-separate-project)
-- [Backends](#backends)
-- [Planned installation and usage](#planned-installation-and-usage)
+> **Status:** the `s1` binary, layered configuration, HTTP service and the
+> OpenJev backend are implemented and were exercised against a real Metal
+> model, including the official TypeSafe JS SDK. Binary releases are built by
+> CI on `v*` tags. Laya, GLiNER2, Vercel and OpenRouter backends are planned;
+> enabling one today is a clear configuration error, not a silent fallback.
+> Only the Apple Silicon build has been run with real weights.
+
+## Table of contents
+
+- [About the project](#about-the-project)
+  - [Backends](#backends)
+  - [Built with](#built-with)
+- [Getting started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Install the CLI](#install-the-cli)
+  - [Download a model](#download-a-model)
+  - [Build from source](#build-from-source)
+- [Usage](#usage)
+  - [One-shot CLI](#one-shot-cli)
+  - [JSON and batch input](#json-and-batch-input)
+  - [Resident HTTP server](#resident-http-server)
+  - [Use the TypeSafe JavaScript SDK](#use-the-typesafe-javascript-sdk)
 - [Configuration](#configuration)
-- [HTTP API](#http-api)
-- [Architecture and cross-repo plan](#architecture-and-cross-repo-plan)
-- [Platforms and performance](#platforms-and-performance)
+- [Models](#models)
+- [Limitations](#limitations)
+- [Documentation](#documentation)
+- [Roadmap](#roadmap)
 - [Contributing](#contributing)
-- [Acknowledgements and license](#acknowledgements-and-license)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
-## Why a separate project?
+## About the project
 
-Applications should not have to change their integration every time they change decision models.
+Applications should not have to change their integration every time they
+change decision models. SystemOne is the common interface and service layer.
+It depends on the inference libraries in
+[openjev-rs](https://github.com/codesoda/openjev-rs),
+[laya-rs](https://github.com/codesoda/laya-rs) and
+[gliner2-rs](https://github.com/codesoda/gliner2-rs); it does not merge or
+rename those projects.
 
-SystemOne provides the common interface and service layer. It depends on the inference libraries in [openjev-rs](https://github.com/codesoda/openjev-rs), [laya-rs](https://github.com/codesoda/laya-rs), and [gliner2-rs](https://github.com/codesoda/gliner2-rs)—it does not merge or rename those projects.
-
-- **Choice:** choose among supplied options and return their probabilities.
-- **Noul:** return the probability that a proposition is true.
-- **Score:** return the expected zero-based level on an ordered rubric.
-
-These are typed decisions, not generated prose. Matching an API schema does **not** mean different models have the same accuracy or calibrated confidence.
-
-## Backends
-
-All entries below are **planned SystemOne adapters**, not currently available integrations.
-
-| Backend kind | Implementation | Integration status / constraint |
+| Decision | Use it for | Result |
 | --- | --- | --- |
-| `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | Existing libraries; preserve prompt/token parity and explicit serial fallback |
-| `laya` | Bidirectional encoder and trained decision heads through laya-rs | Rust runtime prerequisite; Python baseline exists |
-| `gliner2` | Runtime-defined label classification through gliner2-rs | Needs full ordered probability distribution API and tested decision mappings |
-| `vercel` | Hosted Jev through Vercel AI Gateway | Dedicated TypeSafe-compatible endpoint, not chat completions |
-| `openrouter` | Hosted Jev through OpenRouter | Dedicated System One endpoint; model-list normalization required |
+| **Choice** | Routing a ticket or selecting a candidate | Selected option and probabilities |
+| **Noul** | A yes/no question | Probability assigned to yes |
+| **Score** | Rating against ordered levels | Probability-weighted expected level |
 
-Enable only the instances you need. Disabled local backends do not load weights; disabled remote backends do not read credentials or send requests. Enabling an unavailable adapter or a model that cannot load must produce a clear startup error. There is **no silent local-to-cloud fallback**.
+Use the **CLI** for shell pipelines and one-off decisions. Use the **HTTP
+server** for repeated calls from applications or agents: it loads each enabled
+backend once, then accepts requests through a bounded in-memory queue.
 
-## Install
+These are typed decisions, not generated prose. Matching an API schema does
+**not** mean different models have the same accuracy or calibrated confidence.
+Jev compatibility means the documented wire/API subset—not identical models,
+answers or confidence. SystemOne is not affiliated with or endorsed by TypeSafe
+AI, Vercel, OpenRouter, SemIf or other upstream authors.
 
-Tagged releases publish `s1` archives for **Apple Silicon macOS 14+ (Metal)** and **x86-64 Linux glibc 2.35+ (CPU)**, with `SHA256SUMS`, full third-party notices and the MPL-2.0 covered-source crates. Windows is not built yet. The installer downloads, checksum-verifies, inspects and activates a release without root, Python or `jq`:
+### Backends
+
+One trait connects every command and route to a backend:
+`DecisionHost { capabilities(), evaluate(), shutdown() }`. Host-specific
+abilities, such as a local model cache, are separate extension traits. Every
+backend reports which extensions it supports and why not—a hosted passthrough
+does not download models. `s1 backends` and `GET /v1/backends` show that
+coverage.
+
+| Kind | Implementation | Status |
+| --- | --- | --- |
+| `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | **Available.** Prompt/token parity and explicit serial fallback preserved |
+| `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
+| `openrouter` | Hosted Jev through OpenRouter | Planned |
+| `gliner2` | Runtime-defined label classification through gliner2-rs | Planned; needs upstream distribution API |
+| `laya` | Bidirectional encoder and trained decision heads through laya-rs | Planned; needs Rust runtime |
+
+Enable only the instances you need. Disabled local backends do not load
+weights; disabled remote backends do not read credentials. There is **no
+silent local-to-cloud fallback**.
+
+### Built with
+
+- [Rust](https://www.rust-lang.org/)
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) through [llama-cpp-2](https://github.com/utilityai/llama-cpp-rs), via openjev-rs
+- [Hugging Face Hub](https://huggingface.co/) for pinned, checksum-verified GGUF weights
+- [Axum](https://github.com/tokio-rs/axum) and [Tokio](https://tokio.rs/) for HTTP serving
+
+## Getting started
+
+### Prerequisites
+
+For a prebuilt binary, **no Rust, Python, compiler, or Xcode installation is
+needed**.
+
+| Release target | Requirements |
+| --- | --- |
+| Apple Silicon macOS | macOS 14 or newer; Metal acceleration included |
+| Linux x86-64 | glibc 2.35 or newer; system `libstdc++` and `libgcc`; CPU inference |
+
+You need internet access for the initial binary/model download and enough disk
+space for your chosen model. Model weights are not included in the archive. The
+macOS binary is not Developer ID signed or notarized. Windows is not built yet.
+
+### Install the CLI
+
+The installer downloads a prebuilt release, verifies its SHA-256 checksum, and
+installs it without `sudo`. No GitHub account, token, Python or `jq` is needed:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/codesoda/systemone/main/install.sh | sh
-# exact version:
+```
+
+To pin a version:
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/codesoda/systemone/main/install.sh | sh -s -- --version v0.1.0
 ```
 
-Payloads live in `~/.systemone/bin/s1-v<VERSION>-<TARGET>/`; `~/.local/bin/s1` points at the active one. See [docs/RELEASE.md](docs/RELEASE.md) for manual verification and what a release does and does not check. Releases contain no model weights: run `s1 openjev models pull qwen3-0.6b` once.
+- Versioned payloads and their license notices live under `~/.systemone/bin/`.
+- `~/.systemone/bin/s1` selects the installed version; `~/.local/bin/s1` links to it.
+- On macOS, the installer clears `com.apple.quarantine` from the verified
+  executable with `xattr -d`. It does not change global Gatekeeper settings.
 
-## Build and usage
-
-The binary is `s1`. To build from source you need Rust 1.95, plus CMake and a C/C++ toolchain for local inference:
+Rerun the installer to upgrade; previous payloads are retained. No shell startup
+file is edited. If `~/.local/bin` is not on your PATH:
 
 ```sh
-# Remote-only / backend-disabled build: config, listing and HTTP plumbing, no llama.cpp.
-cargo build --release -p systemone-cli
-# Local OpenJev inference: CPU everywhere, Metal on Apple Silicon.
-cargo build --release -p systemone-cli --features native
-cargo build --release -p systemone-cli --features metal
+export PATH="$HOME/.local/bin:$PATH"
+s1 --version
 ```
 
+See [the installer source](install.sh) before running it, or follow the
+[manual installation instructions](docs/RELEASE.md).
+
+### Download a model
+
+The built-in configuration has one backend, `local`, running OpenJev with the
+smallest model. Download it once:
+
 ```sh
-# Load enabled local models once; serve until SIGINT/SIGTERM.
-s1 serve
-
-# Separate terminal: call the running server without loading models again.
-s1 call --url http://127.0.0.1:8080 --input request.json
-
-# One-shot execution through the same config and adapters.
-s1 run --input request.json
-cat request.json | s1 run --backend local
-
-# Flag-built one-shot questions (same output shape as run).
-s1 decide --state 'Charged twice.' --question 'Which team?' --option Billing --option Support
-printf 'Refund requested.' | s1 noul --question 'Does the customer want a refund?'
-s1 score --state-json '{"severity":3}' --question 'How urgent?' --level low --level medium --level high
-
-# Many requests, one model load: one JSON Lines row in, one row out (response
-# or {"line":N,"error":{...}}); exit 1 if any row failed.
-s1 run --jsonl --input requests.jsonl --output answers.jsonl
-
-# Inspect backends (loads nothing), model stores and configuration.
-s1 backends
-s1 models --backend local
-s1 config check
-s1 config show
-
-# Host-specific tooling lives under the host's subcommand.
 s1 openjev models pull qwen3-0.6b
-s1 openjev probe --mode shared
 ```
 
-`serve` is a subcommand, not `--serve`. A one-shot `run` exits after its work; `call` reuses a resident server. Results go to stdout as JSON; logs, errors and routing diagnostics go to stderr. `--pretty` formats JSON for people; `--set key=value` overrides any configuration leaf.
+Downloads are pinned and verified by size and SHA-256 into `~/.cache/openjev`.
+Set `backends.local.settings.offline = true` (or `--set` it) to forbid downloads
+once the model is cached.
+
+### Build from source
+
+<details>
+<summary>Optional: build instead of downloading a release</summary>
+
+Requires Rust 1.95 (pinned by `rust-toolchain.toml`). Local inference also
+needs CMake and a C/C++ toolchain with clang/libclang. On macOS, install Xcode
+Command Line Tools and CMake. On Ubuntu: `build-essential clang libclang-dev
+cmake pkg-config`.
+
+```sh
+git clone https://github.com/codesoda/systemone.git
+cd systemone
+
+# Apple Silicon: Metal acceleration, with the Metal library embedded.
+GGML_METAL=ON GGML_METAL_EMBED_LIBRARY=ON CARGO_TARGET_DIR=target-metal \
+  cargo build --locked --release -p systemone-cli --features metal
+
+# CPU-only build on Linux or macOS.
+GGML_METAL=OFF CARGO_TARGET_DIR=target-cpu \
+  cargo build --locked --release -p systemone-cli --features native
+```
+
+Keep CPU and Metal builds in separate target directories. Plain `cargo build`
+deliberately omits llama.cpp: configuration, listing and the HTTP plumbing
+work, but local inference returns `unavailable`.
+
+</details>
+
+## Usage
+
+### One-shot CLI
+
+A one-shot command loads the backend, answers, and exits. For repeated calls,
+use [`serve`](#resident-http-server). Output has the same shape as the HTTP
+response; diagnostics go to stderr.
+
+**Choose an option:**
+
+```sh
+s1 decide --quiet --pretty \
+  --state 'The customer was charged twice for their subscription.' \
+  --question 'Which team should handle this ticket?' \
+  --option Billing --option Support --option Sales
+```
+
+**Ask a yes/no question, with state piped from stdin:**
+
+```sh
+printf '%s' 'The customer explicitly asks for a refund.' | \
+  s1 noul --quiet --question 'Does the customer request a refund?'
+```
+
+**Score against ordered levels:**
+
+```sh
+s1 score --quiet --pretty \
+  --state-json '{"incident":"Checkout is unavailable","severity":3}' \
+  --question 'How urgent is this incident?' \
+  --level low --level medium --level high
+```
+
+| Option | Purpose |
+| --- | --- |
+| `--state`, `--state-file`, `--state-json`, `--state-json-file` | Exactly one state source, or pipe text on stdin |
+| `--option-id ID --option TEXT` | Use `ID` as the label and `TEXT` as its description |
+| `--backend NAME` | Select a configured backend instead of the default |
+| `--set key=value` | Override any configuration leaf, e.g. `--set backends.local.settings.device=metal` |
+| `--pretty` / `--quiet` | Indented JSON on stdout / warnings only on stderr |
+
+Text is not guessed as JSON: use `--state-json` for structured input. Levels are
+ordinal, as in the Jev API: the first is `0`, the last is `n-1`.
+**stdout is JSON only; diagnostics go to stderr.** Exit codes: **0** success,
+**1** runtime failure, **2** invalid arguments or input. Help is also JSON:
+
+```sh
+s1 --help | jq -r .text
+s1 decide --help | jq -r .text
+```
+
+### JSON and batch input
+
+Use `run` for a complete Jev request document:
+
+```sh
+printf '%s\n' \
+  '{"state":"I was charged twice.","questions":{"route":{"type":"choice","criteria":{"billing":"Payments","support":"Product support"}}}}' \
+  | s1 run --quiet
+```
+
+Use `--jsonl` for a file containing one request per line. The model loads once:
+
+```sh
+s1 run --quiet --jsonl --input requests.jsonl --output answers.jsonl
+```
+
+Every non-blank input line produces one output line in order: the response, or
+`{"line": N, "error": {...}}`. A failed row does not stop the batch; a broken
+backend does. A summary goes to stderr and the exit code is **1** if any row
+failed.
+
+### Resident HTTP server
+
+```sh
+s1 serve
+```
+
+Every enabled backend loads once. The default address is
+`http://127.0.0.1:8080`. Leave this process running and send requests from
+another terminal, with `s1 call` or any HTTP client:
+
+```sh
+s1 call --input request.json
+```
+
+**Or call the API directly:**
+
+```sh
+curl --fail-with-body --silent --show-error http://127.0.0.1:8080/readyz
+
+curl --fail-with-body --silent --show-error -i \
+  http://127.0.0.1:8080/v1/systemone \
+  -H 'Content-Type: application/json' \
+  --data-binary '{
+    "model": "jev-latest",
+    "state": {"ticket": "duplicate charge", "severity": 3},
+    "questions": {
+      "route": {
+        "type": "choice",
+        "instructions": "Which team should handle this?",
+        "criteria": {"billing": "Payments and invoices", "support": "Product support"}
+      },
+      "review": {"type": "noul", "instructions": "Does a human need to review this?"},
+      "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this?",
+        "criteria": ["low", "medium", "high"]
+      }
+    }
+  }'
+```
+
+Response shape (**illustrative values**, not a promised prediction):
+
+```json
+{
+  "model": "qwen3-0.6b",
+  "answers": {
+    "route": {
+      "type": "choice",
+      "choice": "billing",
+      "confidence": 0.8,
+      "probabilities": {"billing": 0.9, "support": 0.1}
+    },
+    "review": {"type": "noul", "noul": 0.75},
+    "urgency": {
+      "type": "score",
+      "score": 1.2,
+      "confidence": 0.25,
+      "legend": {"0": "low", "1": "medium", "2": "high"},
+      "probabilities": {"0": 0.15, "1": 0.5, "2": 0.35}
+    }
+  },
+  "usage": {"input_tokens": 313, "output_tokens": 0}
+}
+```
+
+`jev-latest` is an accepted alias for the selected backend's model, not a call
+to hosted Jev; the response reports the actual model. `output_tokens` is zero
+because nothing is generated. Routing evidence travels in headers, so the JSON
+stays SDK-compatible: `x-systemone-backend`, `x-systemone-model`,
+`x-systemone-request-id`, `x-systemone-elapsed-ms`, `x-systemone-execution`,
+`x-systemone-fallback` and `x-systemone-probability-status`.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/systemone` | Evaluate typed questions against a state |
+| `GET /v1/models` | Models served by enabled backends |
+| `GET /v1/backends` | Backend inventory and extension coverage |
+| `GET /healthz` | Health check |
+| `GET /readyz` | Readiness: every enabled backend loaded and not broken |
+
+**Selecting a backend:** omit a selector to use `default_backend`. Otherwise
+send a top-level `"backend": "name"` field or the `X-SystemOne-Backend`
+header; both together must agree. A model name never selects a backend—an
+unserved model is `404 not_found`.
+
+**Serving behavior:** up to `server.max_admitted_jobs` (16) requests are
+admitted across body reading, queuing and inference; each backend has its own
+bounded queue and owner thread, so a slow backend does not block another. The
+queue is in memory. The default 120-second deadline includes queue time;
+overload returns HTTP 429, an elapsed deadline 504. Stop the server with
+Ctrl+C or SIGTERM. Native inference cannot be interrupted mid-decode.
+
+**Network access:** loopback needs no API key. Binding outside loopback
+requires a bearer secret; terminate TLS at a trusted reverse proxy.
+
+```sh
+export S1_API_KEY='replace-with-a-long-random-secret'
+s1 serve --host 0.0.0.0 --set server.api_key_env=S1_API_KEY
+```
+
+Clients then send `Authorization: Bearer <secret>` to the `/v1/*` routes;
+`/healthz` and `/readyz` stay open for probes.
+
+### Use the TypeSafe JavaScript SDK
+
+The supported subset is smoke-tested with `@typesafe-ai/sdk` **0.6.0**
+(`compat/sdk-js/`). In a Node.js project:
+
+```sh
+npm install @typesafe-ai/sdk@0.6.0
+```
+
+Save as `example.mjs` and run with `node example.mjs` while the server runs:
+
+```js
+import { TypeSafeClient, choice, noul, score } from "@typesafe-ai/sdk";
+
+const client = new TypeSafeClient({
+  apiKey: process.env.S1_API_KEY || "local-dummy-token",
+  baseURL: "http://127.0.0.1:8080",
+  timeout: 120_000,
+  retry: { maxRetries: 0 },
+});
+
+const result = await client.systemOne({
+  model: "jev-latest",
+  state: { ticket: "The customer was charged twice." },
+  questions: {
+    route: choice("Which team?", { billing: "Payments", support: "Product support" }),
+    review: noul("Does a human need to review this?"),
+    urgency: score("How urgent?", ["low", "medium", "high"]),
+  },
+});
+
+console.log(JSON.stringify(result, null, 2));
+```
+
+**Use the server root as `baseURL`, without `/v1`.** The SDK appends the path
+itself. SDK bodies cannot carry a `backend` field, so either rely on
+`default_backend` or run one `s1 serve` per backend. Request/response
+compatibility does not imply the same predictions as hosted Jev.
 
 ## Configuration
 
-Precedence, matching Discuss CLI's layering:
+`s1` reads TOML and resolves it once, in this order (later wins):
 
-**built-ins < user file < current-directory file < environment < CLI**
+1. Built-in defaults: one `local` OpenJev backend, `qwen3-0.6b`, CPU.
+2. `~/.systemone/systemone.config.toml`
+3. `./systemone.config.toml`
+4. `SYSTEMONE_*` environment variables, e.g. `SYSTEMONE_PORT=9090`,
+   `SYSTEMONE_BACKENDS__LOCAL__SETTINGS__THREADS=8`
+5. CLI flags and `--set key=value`
 
-- macOS/Linux user file: `~/.systemone/systemone.config.toml`
-- Windows user file: `%USERPROFILE%\.systemone\systemone.config.toml`
-- Project file: `./systemone.config.toml` (current directory only; no ancestor search)
-- `--no-config` bypasses both config files and `SYSTEMONE_*` defaults. Explicitly selected remote credentials are still resolved when needed.
-
-SystemOne resolves configuration once and passes explicit typed settings into each adapter. It does **not** read `OPENJEV_*` variables or other upstream config files, and never shells out to upstream CLIs. `s1 config show` prints the merged result with per-leaf provenance.
-
-Illustrative configuration (also in [examples/systemone.config.toml](examples/systemone.config.toml)):
+`s1 config show` prints the merged result with the source of every value;
+`s1 config check` validates every backend's typed settings without loading
+anything. `--no-config` ignores the files and environment.
 
 ```toml
 default_backend = "local"
@@ -129,116 +433,97 @@ enabled = true
 model = "qwen3-0.6b"
 
 [backends.local.settings]
-device = "cpu"      # or "metal" on a Metal build; a mismatch is a startup error
+device = "cpu"      # "metal" on a Metal build; a mismatch is a startup error
 threads = 4
-
-[backends.cloud-vercel]
-kind = "vercel"
-enabled = false
-model = "jev-latest"
-
-[backends.cloud-vercel.settings]
-api_key_env = "AI_GATEWAY_API_KEY"
-
-[backends.cloud-openrouter]
-kind = "openrouter"
-enabled = false
-model = "jev-latest"
-
-[backends.cloud-openrouter.settings]
-api_key_env = "OPENROUTER_API_KEY"
 ```
 
-For example, `SYSTEMONE_DEFAULT_BACKEND=cloud-vercel` selects that instance once it is explicitly enabled. Backend settings, queue policy, environment mappings, validation and precedence are specified in the [cross-repo plan](docs/plans/cross-repo.md#4-configuration-contract).
+See [examples/systemone.config.toml](examples/systemone.config.toml) for the
+full shape, including disabled hosted backends. SystemOne never reads
+`OPENJEV_*` variables or upstream config files.
 
-## HTTP API
+## Models
 
-Routes:
-
-| Route | Purpose |
-| --- | --- |
-| `POST /v1/systemone` | Jev-style typed decisions; optional `backend` extension |
-| `GET /v1/models` | SDK-compatible model catalogue |
-| `GET /v1/backends` | SystemOne extension: capabilities, readiness, limits |
-| `GET /healthz` | Process liveness |
-| `GET /readyz` | Required backend readiness |
-
-Example `request.json`, also available [here](examples/request.json):
-
-```json
-{
-  "model": "jev-latest",
-  "state": "I was charged twice. Please refund the duplicate.",
-  "questions": {
-    "department": {
-      "type": "choice",
-      "instructions": "Which team should handle this?",
-      "criteria": {
-        "billing": "Payments and refunds",
-        "technical": "Bugs and outages"
-      }
-    },
-    "refund_requested": {
-      "type": "noul",
-      "instructions": "Does the customer explicitly request a refund?"
-    }
-  }
-}
-```
+| Model ID | Quantization | Approx. download | When to try it |
+| --- | --- | --- | --- |
+| `qwen3-0.6b` | Q8_0 | 0.64 GB | Smallest download; built-in default |
+| `minicpm5-2b` | Q4_K_M | 1.56 GB | Middle size |
+| `qwen3.5-4b` | Q4_K_M | 3.01 GB | Strongest on OpenJev's recorded fixtures; slower |
 
 ```sh
-curl -sS http://127.0.0.1:8080/v1/systemone \
-  -H 'Content-Type: application/json' \
-  --data-binary @request.json
+s1 openjev models pull qwen3.5-4b
+s1 serve --set backends.local.model=qwen3.5-4b
 ```
 
-An ordinary Jev request uses the configured default backend. Add `"backend": "cloud-openrouter"` at the top level to select another **enabled** instance. This selector chooses the execution backend; `model` selects an allowed model within that backend. A disabled/unknown backend is an error, never an implicit fallback.
+Models are selected at startup; restart to change them. `s1 models` lists the
+registry and re-verifies every cached file by SHA-256 before it says
+`verified`, which takes a few seconds per gigabyte.
 
-Responses retain Jev's `model`, `answers`, and `usage` fields. Routing evidence goes in `x-systemone-*` response headers (`backend`, `model`, `request-id`, `elapsed-ms`, `execution`, `fallback`, `probability-status`), keeping JSON compact. The adapter strips SystemOne's `backend` field before sending requests upstream. An optional `X-SystemOne-Backend` request header supports SDKs that cannot serialize the extra field; conflicting selectors are rejected.
+## Limitations
 
-Vercel passthrough targets `https://ai-gateway.vercel.sh/typesafe/v1/systemone`; OpenRouter targets `https://openrouter.ai/api/v1/systemone`. Credentials stay on the server. Preserving provider fields, errors, usage and costs is part of the compatibility test gate—not a claim of compatibility already achieved.
+- **Typed output can still be wrong.** Probabilities are conditional on the
+  supplied alternatives and are not calibrated operational confidence.
+- **Shared execution falls back to serial** on every profile measured so far.
+  Weights stay loaded, but questions reprocess their full prompts. The fallback
+  is disclosed in headers and diagnostics; `require_shared = true` rejects
+  requests instead.
+- **A supported Jev subset, not a drop-in replacement.** At most 64 questions
+  per request; Choice has 1–16 options, Score 2–16 levels; bodies are limited to
+  1 MiB. Duplicate JSON keys are rejected. OpenJev accepts integer-only JSON
+  state; floats are a validation error.
+- **One backend kind today.** Hosted, GLiNER2 and Laya adapters are planned.
+- **Validation differs by platform.** Only the Apple Silicon Metal build has
+  been run with real weights. Linux CI builds, tests without weights, packages
+  and checks linkage. No Windows build.
 
-## Architecture and cross-repo plan
+## Documentation
 
-```text
-CLI (s1) / HTTP / SDK clients
-         │
-         ▼
-systemone-config → systemone-http (wire, registry, bounded admission)
-         │
-         ▼   systemone-core: DecisionHost trait + neutral types
-         │
-         ├── systemone-openjev ── openjev-core + openjev-llama (git-pinned)   ✅
-         ├── Laya adapter ───── laya-rs inference library (to be built)      planned
-         ├── GLiNER2 adapter ── gliner2-rs classification library            planned
-         ├── Vercel adapter ── dedicated hosted Jev endpoint                  planned
-         └── OpenRouter adapter ─ dedicated hosted Jev endpoint               planned
-```
+| Document | Contents |
+| --- | --- |
+| [Demo](docs/demo.md) | The README walkthrough with copyable requests |
+| [Binary releases](docs/RELEASE.md) | Platforms, checksum verification, package contents |
+| [Cross-repo plan](docs/plans/cross-repo.md) | Backend contract, configuration, routing and wire rules (canonical) |
+| [Research sources](docs/research/sources.md) | Pinned upstream references for the planned adapters |
+| [Changelog](CHANGELOG.md) | Shipped changes and what each release verified |
+| [Third-party notices](THIRD_PARTY.md) | Upstream credits, licenses and the MPL-2.0 source obligation |
 
-One trait connects a command or endpoint to a host: `DecisionHost { capabilities(), evaluate(), shutdown() }`. Host-specific abilities (for example a local model cache) are separate extension traits reached through `Backend::model_store() -> Extension<…>`, so every backend can report whether it supports an extension and why not—a hosted passthrough does not download models. `s1 backends` and `GET /v1/backends` expose that coverage.
+## Roadmap
 
-**Start here: [Cross-repo implementation plan, v1](docs/plans/cross-repo.md).** openjev-rs is pinned at `8452ef0` (its library-only revision; the former `openjev` CLI/server now live here).
+- [x] `s1` CLI, layered configuration and the OpenJev backend.
+- [x] Resident Jev-compatible HTTP service, verified with the official JS SDK.
+- [x] Tagged binary releases for Apple Silicon and Linux x86-64.
+- [ ] Hosted Jev passthrough (Vercel AI Gateway, OpenRouter).
+- [ ] GLiNER2 and Laya backends behind their upstream library gates.
+- [ ] Cross-backend quality and performance fixtures.
+- [ ] Windows build; signed and notarized macOS binaries.
 
-That document owns the shared contracts, work split, milestones, dependencies, verification gates and migration rules. Other repos should reference its stable URL or pin a commit for an implementation task instead of maintaining divergent copies.
-
-Upstream libraries stay independently useful and do not depend on SystemOne. SystemOne implements its traits on adapter wrappers; native model code stays in the project that owns it. Existing standalone CLIs remain available unless separately deprecated.
-
-## Platforms and performance
-
-CPU operation on macOS, Linux and Windows is the portability baseline. Apple Silicon acceleration is a first-class target; CUDA and other execution providers are separately tested profiles, not assumed features of every binary. An explicitly requested accelerator requires a compatible build and device; it must fail clearly rather than silently switch to CPU.
-
-[Laya-MLX](https://github.com/mizorewww/laya-mlx) is valuable implementation and benchmark evidence for Apple Silicon. Its published M3 Max measurements are **not** measurements of SystemOne or laya-rs, and an MLX Python port is not yet a Rust runtime.
-
-Measure Python baselines first, then Rust library inference, then HTTP overhead and queued concurrency on the **same hardware, checkpoint, precision and workload**. Preserve numerical correctness before optimizing. See [research sources and optimization candidates](docs/research/sources.md).
+See [open issues](https://github.com/codesoda/systemone/issues) for the
+acceptance gate of each item.
 
 ## Contributing
 
-Contract tests, the OpenJev adapter, the HTTP service and the CLI exist; hosted passthrough is next. GLiNER2 and Laya require their upstream library gates first. Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` (plus `--features metal`/`native` for the adapter) before submitting. See the [milestone checklist](docs/plans/cross-repo.md#9-milestones-and-acceptance-gates).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the ground rules, the checks to run
+before you push, and the release steps. Open an
+[issue](https://github.com/codesoda/systemone/issues) for proposed contract
+changes and name the affected repositories.
 
-Open an [issue](https://github.com/codesoda/systemone/issues) for proposed contract changes. Include affected repositories and compatibility tests. Do not commit model weights, credentials, private datasets or benchmark claims without reproducible evidence.
+## License
 
-## Acknowledgements and license
+Project code is distributed under the **MIT License**. See [LICENSE](LICENSE).
+Model weights have their own terms. Third-party dependencies, upstream credits,
+and the notices shipped with binaries are documented in
+[THIRD_PARTY.md](THIRD_PARTY.md).
 
-Inspired by Jev/TypeSafe, SemIf/OpenJev, Convai Innovations' Laya, GLiNER2, and the independent Laya-MLX port. Also informed by [Avi Chawla's local decision-engine walkthrough](https://x.com/_avichawla/status/2101563610644496464?s=20).
+## Acknowledgments
 
-SystemOne is independent and is not affiliated with or endorsed by TypeSafe, Vercel, OpenRouter, Convai Innovations, or other upstream authors. Project code and original documentation are [MIT licensed](LICENSE); dependencies, model weights and any reused upstream material retain their own licenses and notices.
+- [TheoLeeCJ / SemIf](https://github.com/TheoLeeCJ/openjev) for the
+  decision-readout approach that openjev-rs implements.
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) and
+  [llama-cpp-rs](https://github.com/utilityai/llama-cpp-rs) for local inference.
+- Jev/TypeSafe for the API shape; Convai Innovations' Laya, GLiNER2 and the
+  independent [Laya-MLX](https://github.com/mizorewww/laya-mlx) port for the
+  planned backends; and
+  [Avi Chawla's local decision-engine walkthrough](https://x.com/_avichawla/status/2101563610644496464?s=20).
+- [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
+  for the organization of this README.
+
+[Back to top](#readme-top)

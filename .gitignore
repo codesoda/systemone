@@ -11,3 +11,4 @@
 /dist/
 /.aislop/*
 !/.aislop/config.yml
+/out/
