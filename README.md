@@ -4,7 +4,7 @@
 
 Use runtime-defined **Choice**, **Noul** (probability of true), and **Score** questions with OpenJev, Laya, GLiNER2, or hosted Jev through **Vercel AI Gateway** and **OpenRouter**. Select a default backend in config, or override it for a request.
 
-> **Status: M0–M2 implemented for the OpenJev backend; no release yet.** The `s1` binary, layered config, Jev-compatible HTTP service and the OpenJev adapter exist and were exercised against a real Metal model. Laya, GLiNER2, Vercel and OpenRouter adapters are still planned; enabling them is a clear configuration error. No installer or downloadable binary exists yet.
+> **Status: M0–M2 implemented for the OpenJev backend; binary releases are produced by CI on `v*` tags.** The `s1` binary, layered config, Jev-compatible HTTP service and the OpenJev adapter exist and were exercised against a real Metal model, including the official TypeSafe JS SDK. Laya, GLiNER2, Vercel and OpenRouter adapters are still planned; enabling them is a clear configuration error. Only the Apple Silicon build has been run with real weights; the Linux build is compiled, tested without models and linkage-checked in CI.
 
 ## Contents
 
@@ -44,9 +44,21 @@ All entries below are **planned SystemOne adapters**, not currently available in
 
 Enable only the instances you need. Disabled local backends do not load weights; disabled remote backends do not read credentials or send requests. Enabling an unavailable adapter or a model that cannot load must produce a clear startup error. There is **no silent local-to-cloud fallback**.
 
+## Install
+
+Tagged releases publish `s1` archives for **Apple Silicon macOS 14+ (Metal)** and **x86-64 Linux glibc 2.35+ (CPU)**, with `SHA256SUMS`, full third-party notices and the MPL-2.0 covered-source crates. Windows is not built yet. The installer downloads, checksum-verifies, inspects and activates a release without root, Python or `jq`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/codesoda/systemone/main/install.sh | sh
+# exact version:
+curl -fsSL https://raw.githubusercontent.com/codesoda/systemone/main/install.sh | sh -s -- --version v0.1.0
+```
+
+Payloads live in `~/.systemone/bin/s1-v<VERSION>-<TARGET>/`; `~/.local/bin/s1` points at the active one. See [docs/RELEASE.md](docs/RELEASE.md) for manual verification and what a release does and does not check. Releases contain no model weights: run `s1 openjev models pull qwen3-0.6b` once.
+
 ## Build and usage
 
-The binary is `s1`. The release goal is downloadable binaries for **macOS, Linux, and Windows**; none exist yet, so build from source (Rust 1.95, plus CMake and a C/C++ toolchain for local inference):
+The binary is `s1`. To build from source you need Rust 1.95, plus CMake and a C/C++ toolchain for local inference:
 
 ```sh
 # Remote-only / backend-disabled build: config, listing and HTTP plumbing, no llama.cpp.

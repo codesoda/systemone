@@ -7,3 +7,6 @@
 /models/
 /.cache/
 /compat/sdk-js/node_modules/
+/target-*/
+/dist/
+/.aislop/

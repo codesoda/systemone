@@ -661,6 +661,10 @@ pub fn models<W: Write>(
     let instance = backends::configure_one(&resolved.config, args.backend.as_deref())?;
     let backend = instance.backend?;
     let store = backend.model_store().require("model store")?;
+    tracing::info!(
+        backend = %instance.id,
+        "listing models; cached artifacts are re-verified by SHA-256, which takes a few seconds per gigabyte"
+    );
     let output = ModelsOutput {
         schema: "systemone-models-v1",
         backend: instance.id.to_string(),
