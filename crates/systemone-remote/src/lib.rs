@@ -3,7 +3,7 @@
 //! [`transport`] holds the single shared HTTP client policy used by every
 //! hosted kind: one send per request (no retries, no provider fallback), no
 //! redirects, no client header forwarding, and a bounded response body.
-//! [`typesafe`] is the direct TypeSafe Jev adapter (`kind = "typesafe"`)
+//! [`typesafe`] is the TypeSafe Jev adapter (`kind = "typesafe"`)
 //! that calls `https://api.typesafe.ai/v1/systemone` without an
 //! intermediary.
 //!

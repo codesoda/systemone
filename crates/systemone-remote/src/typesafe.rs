@@ -1,4 +1,4 @@
-//! Direct TypeSafe Jev adapter (`kind = "typesafe"`).
+//! TypeSafe Jev adapter (`kind = "typesafe"`).
 //!
 //! Calls `https://api.typesafe.ai/v1/systemone` (and `/v1/models`) with a
 //! bearer key resolved from the environment at load time. The base URL is
@@ -198,9 +198,7 @@ impl TypesafeHost {
             kind: ProviderKind::Typesafe,
             model: ModelIdentity {
                 id: model.clone(),
-                description: format!(
-                    "TypeSafe hosted Jev model {model}, called as a direct passthrough"
-                ),
+                description: format!("TypeSafe hosted Jev model {model}"),
                 // The catalogue, not the adapter, owns release dates.
                 release_date: "unknown".to_owned(),
             },

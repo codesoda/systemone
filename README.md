@@ -17,7 +17,7 @@ configuration, not in code.
 · [Request a feature](https://github.com/codesoda/systemone/issues/new)
 
 > **Status:** the `s1` binary, layered configuration, HTTP service, the
-> OpenJev backend and the direct TypeSafe backend are implemented; the
+> OpenJev backend and the TypeSafe backend are implemented; the
 > OpenJev path was exercised against a real Metal model, including the
 > official TypeSafe JS SDK. Binary releases are built by
 > CI on `v*` tags. Laya, GLiNER2, Vercel and OpenRouter backends are planned;
@@ -86,7 +86,7 @@ coverage.
 | Kind | Implementation | Status |
 | --- | --- | --- |
 | `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | **Available.** Prompt/token parity and explicit serial fallback preserved |
-| `typesafe` | Direct hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable |
+| `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable |
 | `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
 | `openrouter` | Hosted Jev through OpenRouter | Planned |
 | `gliner2` | Runtime-defined label classification through gliner2-rs | Planned; needs upstream distribution API |
@@ -492,7 +492,7 @@ registry and re-verifies every cached file by SHA-256 before it says
 
 - [x] `s1` CLI, layered configuration and the OpenJev backend.
 - [x] Resident Jev-compatible HTTP service, verified with the official JS SDK.
-- [x] Direct TypeSafe hosted Jev backend (`kind = "typesafe"`).
+- [x] TypeSafe hosted Jev backend (`kind = "typesafe"`).
 - [x] Tagged binary releases for Apple Silicon and Linux x86-64.
 - [ ] Hosted Jev passthrough (Vercel AI Gateway, OpenRouter).
 - [ ] GLiNER2 and Laya backends behind their upstream library gates.

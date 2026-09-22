@@ -1,4 +1,4 @@
-//! Opt-in, spend-bounded live smoke test for the direct TypeSafe adapter.
+//! Opt-in, spend-bounded live smoke test for the TypeSafe adapter.
 //!
 //! Not run by default. This test sends one real request to
 //! `https://api.typesafe.ai/v1/systemone` and therefore spends money. It

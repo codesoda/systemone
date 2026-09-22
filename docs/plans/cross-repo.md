@@ -53,7 +53,7 @@ crates/
   systemone-openjev/       # wrapper over upstream library crates
   systemone-laya/          # enabled only after upstream runtime gate
   systemone-gliner2/       # wrapper over upstream classification library
-  systemone-remote/        # shared HTTP transport; direct TypeSafe adapter; future Vercel/OpenRouter adapters
+  systemone-remote/        # shared HTTP transport; TypeSafe adapter; future Vercel/OpenRouter adapters
 compat/                   # pinned SDK fixtures, request/response/error corpus
 benchmarks/               # cross-backend quality and service performance
 ```
@@ -163,11 +163,11 @@ No per-question routing in v1. One request goes to one selected instance. There 
 
 SDK compatibility gate must pin actual TypeSafe Python/JS SDK versions and include ordinary requests with no extension. Unknown field acceptance, criteria forms, precision and error shapes are verified, not guessed. Publish supported subset/limitations if any gate fails.
 
-## 6. Hosted Jev backends: direct TypeSafe, Vercel and OpenRouter
+## 6. Hosted Jev backends: TypeSafe, Vercel and OpenRouter
 
 All three are required first-class adapters, not optional future inspiration. `typesafe` is shipped (§6a); the Vercel and OpenRouter passthroughs are planned.
 
-### 6a. Direct TypeSafe backend (shipped)
+### 6a. TypeSafe backend (shipped)
 
 `kind = "typesafe"` calls `https://api.typesafe.ai/v1/systemone` directly, with no intermediary. It lives in `systemone-remote` alongside the shared remote transport and future passthrough adapters.
 
@@ -237,7 +237,7 @@ Every milestone ends with formatting, `cargo clippy --workspace --all-targets --
 | M0 Contracts and build feasibility | Done except the llama.cpp + ort linker check | [CHANGELOG](../../CHANGELOG.md), issues |
 | M1 OpenJev adapter, one-shot CLI, config | Done | [CHANGELOG](../../CHANGELOG.md) |
 | M2 Resident HTTP service, SDK compatibility | Done (JS SDK); Python SDK and overhead measurement open | [CHANGELOG](../../CHANGELOG.md), issues |
-| M3 Hosted Jev backends: direct TypeSafe (done), Vercel + OpenRouter passthrough | Partial | [CHANGELOG](../../CHANGELOG.md) |
+| M3 Hosted Jev backends: TypeSafe (done), Vercel + OpenRouter passthrough | Partial | [CHANGELOG](../../CHANGELOG.md) |
 | M4 GLiNER2 adapter | Planned; needs upstream library gate | GitHub issues |
 | M5 Laya Python baseline → Rust runtime → adapter | Planned; needs laya-rs | GitHub issues |
 | M6 Cross-backend quality and performance | Planned | GitHub issues |
@@ -261,7 +261,7 @@ Laya-MLX reports useful small optimizations, not a universal further 10× speedu
 
 ## 11. Blockers and decision log
 
-Resolved: separate repo; SystemOne-owned common config/API/queue; upstream library independence; six explicit backend kinds (OpenJev, direct TypeSafe, Vercel AI Gateway, OpenRouter, Laya, GLiNER2) including both hosted gateways; request override/default config; no cloud failover; in-memory queues; CWD config layering; CPU cross-platform baseline; library-first Laya work.
+Resolved: separate repo; SystemOne-owned common config/API/queue; upstream library independence; six explicit backend kinds (OpenJev, TypeSafe, Vercel AI Gateway, OpenRouter, Laya, GLiNER2) including both hosted gateways; request override/default config; no cloud failover; in-memory queues; CWD config layering; CPU cross-platform baseline; library-first Laya work.
 
 Open implementation decisions with required resolution gates:
 
