@@ -17,7 +17,7 @@ def type_command(text):
     print("\033[1;36m$ \033[0m", end="", flush=True)
     for char in text:
         print(char, end="", flush=True)
-        time.sleep(0.012)
+        time.sleep(0.004)
     print(flush=True)
 
 
@@ -47,19 +47,19 @@ def main():
     try:
         header("Start the server")
         type_command("s1 serve")
-        time.sleep(1)
+        time.sleep(0.4)
         print("\nLoading backend local (openjev, qwen3-0.6b)...", flush=True)
-        time.sleep(1.5)
+        time.sleep(0.6)
         print("\033[32mReady at http://127.0.0.1:8080\033[0m")
         print("\nKeep this terminal open. Run curl in another terminal.", flush=True)
-        time.sleep(5)
+        time.sleep(2)
         for scene in scenes:
             header(scene["title"])
             type_command(curl_command(scene))
-            time.sleep(8)
+            time.sleep(2.5)
             print("\n\033[1;35mResponse\033[0m")
             print(formatted_response(scene), flush=True)
-            time.sleep(10)
+            time.sleep(4)
         print("\n\033[1;32mWALKTHROUGH COMPLETE\033[0m", flush=True)
     finally:
         print("\033[?25h", end="", flush=True)

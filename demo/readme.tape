@@ -24,6 +24,6 @@ Hide
 Type "python3 demo/session.py"
 Enter
 Show
-Sleep 56s
+Sleep 20s
 Wait+Screen /WALKTHROUGH COMPLETE/
-Sleep 4s
+Sleep 2s

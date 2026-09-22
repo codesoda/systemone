@@ -31,8 +31,8 @@ Outputs:
 1. Type `s1 serve`, then show illustrative loading and
    readiness messages. Explain that it stays open in its own terminal.
 2. Clear the view. Type a real Choice curl request for support-ticket routing.
-   Leave the inputs visible for 8 seconds, then display the illustrative JSON
-   response for 10 seconds, keeping the command on screen.
+   Leave the inputs visible for 2.5 seconds, then display the illustrative JSON
+   response for 4 seconds, keeping the command on screen.
 3. Clear the view. Type a Noul curl request detecting an explicit refund request.
    Use the same input/result pauses.
 
