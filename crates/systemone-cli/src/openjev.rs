@@ -19,6 +19,7 @@ use crate::{
 pub const PROBE_CHILD_ENV: &str = "SYSTEMONE_OPENJEV_PROBE_CHILD";
 /// `openjev-llama` gates unverified shared/batch candidates behind this
 /// variable in the child process; it is the library's guard, not ours.
+#[cfg(feature = "native")]
 const LIBRARY_PROBE_CHILD_ENV: &str = "OPENJEV_PROBE_CHILD";
 
 fn select(
