@@ -1,0 +1,27 @@
+[package]
+name = "systemone-openjev"
+description = "SystemOne host adapter over the openjev-core / openjev-llama inference libraries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Compile llama.cpp and enable local inference. Without it the adapter can
+# describe itself and inspect the model cache, but `load` fails explicitly.
+native = ["openjev-llama/native"]
+metal = ["native", "openjev-llama/metal"]
+cuda = ["native", "openjev-llama/cuda"]
+
+[dependencies]
+openjev-core.workspace = true
+openjev-llama.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+systemone-core.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

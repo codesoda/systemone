@@ -1,4 +1,4 @@
-# Proposed configuration contract; SystemOne is not implemented yet.
+# Example s1 configuration (~/.systemone/systemone.config.toml or ./systemone.config.toml).
 # Precedence: built-ins < user file < CWD file < SYSTEMONE_* < CLI.
 default_backend = "local"
 

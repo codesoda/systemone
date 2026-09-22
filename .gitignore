@@ -6,3 +6,9 @@
 /systemone.config.toml
 /models/
 /.cache/
+/compat/sdk-js/node_modules/
+/target-*/
+/dist/
+/.aislop/*
+!/.aislop/config.yml
+/out/
