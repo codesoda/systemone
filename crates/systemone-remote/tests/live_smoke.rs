@@ -65,7 +65,7 @@ fn live_typesafe_direct_round_trip() {
         assert!(!model.name.is_empty());
     }
 
-    let body = br#"{"state":{"topic":"live smoke"},"questions":{"pick":{"type":"choice","criteria":{"alpha":null,"beta":null}},"worth":{"type":"noul","criteria":{"result":null}}}}"#;
+    let body = br#"{"state":{"topic":"live smoke"},"questions":{"pick":{"type":"choice","criteria":{"alpha":null,"beta":null}},"worth":{"type":"noul","criteria":{"true":"it works"}}}}"#;
     let request: DecisionRequest = wire::parse_request(body)
         .expect("parse smoke request")
         .request;

@@ -473,6 +473,10 @@ fn model_catalogue_requires_object_entries() {
     assert!(parse_models_response(br#"["jev-latest"]"#).is_err());
     assert!(parse_models_response(br#"[{"description":"no name"}]"#).is_err());
     assert!(parse_models_response(br#"{"object":true}"#).is_err());
+    // An object without a models array, or a non-array models value, is rejected.
+    assert!(parse_models_response(br#"{"models":{"object":true}}"#).is_err());
+    // A bare array is still accepted (and validated) for compatibility.
+    assert!(parse_models_response(br#"[{"name":"jev-latest"},{"name":"jev-preview"}]"#).is_ok());
     assert!(parse_models_response(b"\xff\xfe").is_err());
     assert!(parse_models_response(br#"[{"name":""}]"#).is_err());
     assert!(parse_models_response(br#"[]"#).is_ok());

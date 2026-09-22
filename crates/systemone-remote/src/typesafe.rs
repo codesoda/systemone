@@ -403,12 +403,23 @@ pub fn parse_models_response(bytes: &[u8]) -> Result<Vec<TypesafeModel>, WireErr
         message: "models response must be valid UTF-8 JSON".to_owned(),
     })?;
     let value = wire::parse_strict(text)?;
+    // The live API returns `{"models": [...]}`; a bare array is also
+    // accepted so the catalogue shape stays compatible either way.
     let entries = match value {
         Value::Array(entries) => entries,
+        Value::Object(fields) => match fields.get("models") {
+            Some(Value::Array(entries)) => entries.clone(),
+            _ => {
+                return Err(WireError {
+                    error_type: "validation_error",
+                    message: "models response must be {\"models\": [...]}".to_owned(),
+                });
+            }
+        },
         _ => {
             return Err(WireError {
                 error_type: "validation_error",
-                message: "models response must be a JSON array".to_owned(),
+                message: "models response must be {\"models\": [...]}".to_owned(),
             });
         }
     };
