@@ -56,10 +56,9 @@ def main():
         for scene in scenes:
             header(scene["title"])
             type_command(curl_command(scene))
-            time.sleep(2.5)
             print("\n\033[1;35mResponse\033[0m")
             print(formatted_response(scene), flush=True)
-            time.sleep(4)
+            time.sleep(2.2)
         print("\n\033[1;32mWALKTHROUGH COMPLETE\033[0m", flush=True)
     finally:
         print("\033[?25h", end="", flush=True)

@@ -8,6 +8,6 @@ done
 mkdir -p out/demo-recording
 python3 -m unittest discover -s demo -p 'test_*.py'
 vhs demo/readme.tape
-ffmpeg -v error -ss 9 -i docs/demo.mp4 -frames:v 1 -y docs/demo-poster.png
+ffmpeg -v error -ss 6 -i docs/demo.mp4 -frames:v 1 -y docs/demo-poster.png
 ffmpeg -v error -sseof -0.1 -i docs/demo.mp4 -frames:v 1 -y out/demo-recording/final.png
 printf 'Created docs/demo.gif, docs/demo.mp4, and docs/demo-poster.png (illustrative walkthrough).\n'

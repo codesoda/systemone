@@ -45,7 +45,7 @@ class WalkthroughTests(unittest.TestCase):
             session.main()
         self.assertEqual(commands.call_args_list[0].args[0], 's1 serve')
         self.assertEqual(len(commands.call_args_list), 3)
-        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.4, 0.6, 2, 2.5, 4, 2.5, 4])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.4, 0.6, 2, 2.2, 2.2])
         self.assertIn('illustrative responses', output.getvalue())
         self.assertIn('WALKTHROUGH COMPLETE', output.getvalue())
 
