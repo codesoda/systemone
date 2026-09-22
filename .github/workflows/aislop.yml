@@ -1,0 +1,22 @@
+name: aislop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      # Gate threshold and engines live in .aislop/config.yml (failBelow: 95).
+      - uses: scanaislop/aislop@v1
+        with:
+          version: 0.16.0

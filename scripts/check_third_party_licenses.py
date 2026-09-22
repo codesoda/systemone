@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = REPO_ROOT / "THIRD_PARTY_LICENSES.html"
 METADATA = REPO_ROOT / "licenses" / "THIRD_PARTY_LICENSES.metadata.json"
 GENERATOR = REPO_ROOT / "scripts" / "generate_third_party_licenses.py"
-RELEASE = REPO_ROOT / "scripts" / "release.py"
+RELEASE = REPO_ROOT / "scripts" / "release_lib.py"
 SOURCE_DIRECTORY = REPO_ROOT / "licenses" / "sources"
 RUST_NOTICE = REPO_ROOT / "licenses" / "RUST-COPYRIGHT-library.html"
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci-release.yml"
@@ -65,10 +65,14 @@ def cargo_lock_checksum(package, version):
     return checksum
 
 
-def main():
-    if not BUNDLE.is_file() or not METADATA.is_file() or not GENERATOR.is_file():
-        fail("license bundle, metadata, or generator is missing")
-    metadata = json.loads(METADATA.read_text(encoding="utf-8"))
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_bundle_matches_metadata(metadata):
     if metadata.get("schema") != "systemone-third-party-licenses-v1":
         fail("unknown license metadata schema")
     if metadata.get("bundle") != BUNDLE.name or metadata.get("bundle_sha256") != sha256(BUNDLE):
@@ -76,13 +80,10 @@ def main():
     lock_hash = sha256(REPO_ROOT / "Cargo.lock")
     if metadata.get("cargo_lock_sha256") != lock_hash:
         fail("Cargo.lock changed; regenerate THIRD_PARTY_LICENSES.html")
+    return lock_hash
 
-    spec = importlib.util.spec_from_file_location("systemone_license_generator", GENERATOR)
-    generator = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(generator)
-    release_spec = importlib.util.spec_from_file_location("systemone_release", RELEASE)
-    release = importlib.util.module_from_spec(release_spec)
-    release_spec.loader.exec_module(release)
+
+def check_generator_pins(metadata, generator):
     if metadata.get("cargo_about_version") != generator.CARGO_ABOUT_VERSION:
         fail("cargo-about version metadata does not match the generator")
     expected_native_hashes = {name: value[1] for name, value in sorted(generator.NATIVE_SOURCES.items())}
@@ -92,6 +93,9 @@ def main():
         fail("native source pin does not match the generator")
     if metadata.get("source_archives") != generator.SOURCE_ARCHIVES:
         fail("covered source archive metadata does not match the generator")
+
+
+def check_rust_notice(metadata, generator):
     expected_rust_notice = {
         "commit_hash": generator.RUST_COMMIT_HASH,
         "installer_component": "rustc",
@@ -105,14 +109,16 @@ def main():
         fail("Rust library notice metadata does not match the pinned compiler")
     if not RUST_NOTICE.is_file() or sha256(RUST_NOTICE) != generator.RUST_NOTICE_SHA256:
         fail("Rust library notice does not match the reviewed compiler payload")
-    workflow_text = WORKFLOW.read_text(encoding="utf-8")
     workflow_toolchains = []
-    for line in workflow_text.splitlines():
+    for line in WORKFLOW.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped.startswith("RUSTUP_TOOLCHAIN:"):
             workflow_toolchains.append(stripped.partition(":")[2].strip().strip("\"'"))
     if workflow_toolchains != [generator.RUST_RELEASE]:
         fail("release workflow RUSTUP_TOOLCHAIN does not match the Rust notice compiler")
+
+
+def check_covered_sources(generator):
     for filename, source in sorted(generator.SOURCE_ARCHIVES.items()):
         archive = SOURCE_DIRECTORY / filename
         if not archive.is_file():
@@ -123,9 +129,9 @@ def main():
         if sha256(archive) != lock_checksum:
             fail("covered source archive does not match Cargo.lock: %s" % archive.relative_to(REPO_ROOT))
 
-    release_script = RELEASE.read_text(encoding="utf-8")
-    pin_match = re.search(r'^LLAMA_CPP_COMMIT = "([0-9a-f]{40})"$', release_script, re.MULTILINE)
-    if pin_match is None or pin_match.group(1) != metadata.get("llama_cpp_commit"):
+
+def check_release_packaging(metadata, generator, release):
+    if release.LLAMA_CPP_COMMIT != metadata.get("llama_cpp_commit"):
         fail("release backend pin does not match the license bundle")
     if "THIRD_PARTY_LICENSES.html" not in release.MEMBER_FILES:
         fail("release archive does not include THIRD_PARTY_LICENSES.html")
@@ -141,12 +147,28 @@ def main():
     if not set(generator.SOURCE_ARCHIVES).issubset(release.MEMBER_FILES):
         fail("release member list omits a covered source archive")
 
+
+def check_bundle_text():
     bundle_text = BUNDLE.read_text(encoding="utf-8")
     for required in REQUIRED_TEXT:
         if required not in bundle_text:
             fail("required attributable notice is missing: %s" % required)
     if len(BUNDLE.read_bytes()) > 3 * 1024 * 1024:
         fail("license bundle unexpectedly exceeds 3 MiB")
+
+
+def main():
+    if not BUNDLE.is_file() or not METADATA.is_file() or not GENERATOR.is_file():
+        fail("license bundle, metadata, or generator is missing")
+    metadata = json.loads(METADATA.read_text(encoding="utf-8"))
+    lock_hash = check_bundle_matches_metadata(metadata)
+    generator = load_module("systemone_license_generator", GENERATOR)
+    release = load_module("systemone_release_lib", RELEASE)
+    check_generator_pins(metadata, generator)
+    check_rust_notice(metadata, generator)
+    check_covered_sources(generator)
+    check_release_packaging(metadata, generator, release)
+    check_bundle_text()
     print(
         "verified THIRD_PARTY_LICENSES.html sha256=%s Rust-notice=%s Cargo.lock=%s packages=%s source_archives=%s"
         % (

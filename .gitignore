@@ -9,4 +9,5 @@
 /compat/sdk-js/node_modules/
 /target-*/
 /dist/
-/.aislop/
+/.aislop/*
+!/.aislop/config.yml

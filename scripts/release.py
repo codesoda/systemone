@@ -2,7 +2,7 @@
 """Build and validate SystemOne (`s1`) binary release archives.
 
 This script intentionally uses only the Python standard library. Python is a
-build/verification dependency, not an s1 runtime dependency.
+build/verification dependency, not an `s1` runtime dependency.
 """
 
 import argparse
@@ -12,71 +12,33 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import shutil
-import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-TARGETS = {
-    "aarch64-apple-darwin": {
-        "features": ["metal"],
-        "platform": "macos",
-        "architecture": "arm64",
-        "requirements": {
-            "minimum_macos": "14.0",
-            "runtime_tools_not_required": ["Homebrew", "Xcode", "CMake", "Python"],
-        },
-    },
-    "x86_64-unknown-linux-gnu": {
-        "features": ["native"],
-        "platform": "linux",
-        "architecture": "x86_64",
-        "requirements": {
-            "minimum_glibc": "2.35",
-            "shared_libraries": ["glibc", "libstdc++", "libgcc"],
-            "runtime_tools_not_required": ["CMake", "clang", "Python"],
-        },
-    },
-}
-NATIVE_CRATE_VERSION = "0.1.156"
-LLAMA_CPP_COMMIT = "e79e4bf660e19f2ad851e06c6913f7a8c5852621"
-SOURCE_ARCHIVE_PATHS = {
-    "colored-3.1.1.crate": ("licenses", "sources", "colored-3.1.1.crate"),
-    "option-ext-0.2.0.crate": ("licenses", "sources", "option-ext-0.2.0.crate"),
-}
-RUST_NOTICE_PATH = ("licenses", "RUST-COPYRIGHT-library.html")
-MEMBER_FILES = (
-    "s1",
-    "LICENSE",
-    "THIRD_PARTY.md",
-    "THIRD_PARTY_LICENSES.html",
-    "RUST-COPYRIGHT-library.html",
-    "colored-3.1.1.crate",
-    "option-ext-0.2.0.crate",
-    "README.md",
-    "BUILD-INFO.json",
+from release_lib import (
+    MEMBER_FILES,
+    LLAMA_CPP_COMMIT,
+    NATIVE_CRATE_VERSION,
+    RUST_NOTICE_PATH,
+    SOURCE_ARCHIVE_PATHS,
+    SOURCE_SHA_RE,
+    TARGETS,
+    VERSION_RE,
+    ReleaseError,
+    add_bytes,
+    add_directory,
+    check_linkage,
+    extract_safely,
+    fail,
+    inspect_members,
+    json_bytes,
+    run_json_command,
+    sha256_path,
 )
-SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-VERSION_RE = re.compile(r'^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$')
 
-
-class ReleaseError(Exception):
-    pass
-
-
-def fail(message):
-    raise ReleaseError(message)
-
-
-def sha256_path(path):
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def workspace_version(repo_root):
@@ -110,61 +72,6 @@ def validate_ref(ref, version, require_tag=False):
     if require_tag:
         fail("publication requires refs/tags/v<VERSION>, got %s" % ref)
     return None
-
-
-def run_json_command(binary, argument, expected_schema, expected_version=None, cwd=None):
-    completed = subprocess.run(
-        [str(binary), argument],
-        cwd=str(cwd) if cwd else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if completed.returncode != 0:
-        fail("%s %s exited %d" % (binary, argument, completed.returncode))
-    if completed.stderr:
-        fail("%s %s wrote to stderr" % (binary, argument))
-    try:
-        text = completed.stdout.decode("utf-8")
-        value = json.loads(text)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        fail("%s %s did not emit one UTF-8 JSON value: %s" % (binary, argument, error))
-    if not isinstance(value, dict) or value.get("schema") != expected_schema:
-        fail("%s %s emitted the wrong schema" % (binary, argument))
-    if expected_version is not None and value.get("version") != expected_version:
-        fail("binary version %r does not match workspace version %r" % (value.get("version"), expected_version))
-    return value
-
-
-def json_bytes(value):
-    return (json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
-
-
-def add_directory(archive, name, epoch):
-    info = tarfile.TarInfo(name.rstrip("/") + "/")
-    info.type = tarfile.DIRTYPE
-    info.mode = 0o755
-    info.uid = 0
-    info.gid = 0
-    info.uname = "root"
-    info.gname = "root"
-    info.mtime = epoch
-    archive.addfile(info)
-
-
-def add_bytes(archive, name, data, mode, epoch):
-    info = tarfile.TarInfo(name)
-    info.size = len(data)
-    info.mode = mode
-    info.uid = 0
-    info.gid = 0
-    info.uname = "root"
-    info.gname = "root"
-    info.mtime = epoch
-    with tempfile.SpooledTemporaryFile() as handle:
-        handle.write(data)
-        handle.seek(0)
-        archive.addfile(info, handle)
 
 
 def package_archive(args):
@@ -255,102 +162,36 @@ def package_archive(args):
                         mode = 0o755 if name == "s1" else 0o644
                         add_bytes(archive, root_name + "/" + name, file_data[name], mode, args.source_date_epoch)
     except Exception:
-        try:
-            archive_path.unlink()
-        except FileNotFoundError:
-            pass
+        archive_path.unlink(missing_ok=True)
         raise
 
     print(str(archive_path))
 
 
-def safe_member_name(name):
-    if not name or "\\" in name:
-        return False
-    path = PurePosixPath(name)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
-        return False
-    return True
+def backend_identity(target):
+    target_metadata = TARGETS[target]
+    return {
+        "name": "s1",
+        "platform": target_metadata["platform"],
+        "architecture": target_metadata["architecture"],
+        "features": target_metadata["features"],
+        "system_requirements": target_metadata["requirements"],
+        "backend": {
+            "llama_cpp_rs_crate": NATIVE_CRATE_VERSION,
+            "llama_cpp_sys_crate": NATIVE_CRATE_VERSION,
+            "llama_cpp_commit": LLAMA_CPP_COMMIT,
+            "native_libraries": "static",
+            "metal_library_embedded": target == "aarch64-apple-darwin",
+        },
+        "distribution": {
+            "contains_model_weights": False,
+            "developer_id_signed": False,
+            "apple_notarized": False,
+        },
+    }
 
 
-def inspect_members(archive_path):
-    try:
-        with tarfile.open(str(archive_path), mode="r:gz") as archive:
-            members = archive.getmembers()
-    except (tarfile.TarError, OSError) as error:
-        fail("invalid release archive %s: %s" % (archive_path, error))
-    if not members:
-        fail("release archive is empty")
-    seen = set()
-    for member in members:
-        if not safe_member_name(member.name):
-            fail("unsafe archive member: %r" % member.name)
-        if member.name in seen:
-            fail("duplicate archive member: %s" % member.name)
-        seen.add(member.name)
-        if not (member.isdir() or member.isfile()):
-            fail("archive links/devices are forbidden: %s" % member.name)
-    return members
-
-
-def extract_safely(archive_path, destination, members):
-    destination.mkdir(parents=True, exist_ok=False)
-    with tarfile.open(str(archive_path), mode="r:gz") as archive:
-        for member in members:
-            output = destination.joinpath(*PurePosixPath(member.name).parts)
-            if member.isdir():
-                output.mkdir(mode=0o755, parents=True, exist_ok=True)
-                continue
-            output.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
-            source = archive.extractfile(member)
-            if source is None:
-                fail("could not read archive member: %s" % member.name)
-            with source, output.open("xb") as target:
-                shutil.copyfileobj(source, target)
-            output.chmod(member.mode & 0o777)
-
-
-def check_linkage(binary, target):
-    file_result = subprocess.run(["file", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True)
-    if file_result.returncode != 0:
-        fail("file failed for packaged binary: %s" % file_result.stderr.strip())
-    description = file_result.stdout
-    if target == "aarch64-apple-darwin":
-        if "Mach-O" not in description or "arm64" not in description:
-            fail("packaged binary is not Mach-O arm64: %s" % description.strip())
-        result = subprocess.run(["otool", "-L", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True)
-        if result.returncode != 0:
-            fail("otool -L failed: %s" % result.stderr.strip())
-        for line in result.stdout.splitlines()[1:]:
-            dependency = line.strip().split(" ", 1)[0]
-            if dependency and not dependency.startswith(("/usr/lib/", "/System/Library/")):
-                fail("non-system macOS dependency: %s" % dependency)
-    else:
-        if "ELF 64-bit" not in description or "x86-64" not in description:
-            fail("packaged binary is not ELF x86-64: %s" % description.strip())
-        result = subprocess.run(["ldd", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, text=True)
-        if result.returncode != 0:
-            fail("ldd failed: %s" % result.stdout.strip())
-        for line in result.stdout.splitlines():
-            stripped = line.strip()
-            if "not found" in stripped:
-                fail("unresolved Linux dependency: %s" % stripped)
-            if "=>" in stripped:
-                resolved = stripped.split("=>", 1)[1].strip().split(" ", 1)[0]
-                if resolved and not resolved.startswith(("/lib/", "/lib64/", "/usr/lib/", "/usr/lib64/")):
-                    fail("non-system Linux dependency: %s" % resolved)
-            elif stripped.startswith("/"):
-                resolved = stripped.split(" ", 1)[0]
-                if not resolved.startswith(("/lib/", "/lib64/", "/usr/lib/", "/usr/lib64/")):
-                    fail("non-system Linux loader: %s" % resolved)
-    print(description.strip())
-
-
-def verify_archive(args):
-    archive_path = Path(args.archive).resolve()
-    if not archive_path.is_file():
-        fail("archive is not a regular file: %s" % archive_path)
-    members = inspect_members(archive_path)
+def archive_layout(members):
     file_members = [member.name for member in members if member.isfile()]
     directory_members = [member.name.rstrip("/") for member in members if member.isdir()]
     roots = {PurePosixPath(name).parts[0] for name in file_members}
@@ -362,82 +203,84 @@ def verify_archive(args):
         fail("archive members do not match the required ordered package contents")
     if directory_members != [root_name]:
         fail("archive must contain only its one versioned root directory")
+    return root_name
 
+
+def load_build_info(root):
+    try:
+        build_info = json.loads((root / "BUILD-INFO.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        fail("invalid BUILD-INFO.json: %s" % error)
+    if not isinstance(build_info, dict) or build_info.get("schema") != "systemone-build-info-v1":
+        fail("invalid build-info schema")
+    version = build_info.get("version")
+    target = build_info.get("target")
+    if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
+        fail("invalid build-info version")
+    if target not in TARGETS:
+        fail("invalid build-info target")
+    for key, expected_value in backend_identity(target).items():
+        if build_info.get(key) != expected_value:
+            fail("invalid build-info %s" % key)
+    if not isinstance(build_info.get("rust_version"), str) or not build_info["rust_version"]:
+        fail("invalid build-info Rust version")
+    validate_ref(build_info.get("source_ref"), version)
+    expected_tag = "v" + version if build_info.get("source_ref", "").startswith("refs/tags/") else None
+    if build_info.get("tag") != expected_tag:
+        fail("build-info tag is inconsistent with source_ref")
+    if not SOURCE_SHA_RE.fullmatch(str(build_info.get("source_sha", ""))):
+        fail("invalid build-info source SHA")
+    return build_info
+
+
+def check_expectations(args, build_info, archive_path, root_name):
+    version = build_info["version"]
+    target = build_info["target"]
+    if args.expected_version and version != args.expected_version:
+        fail("archive version %r does not match expected %r" % (version, args.expected_version))
+    if args.expected_target and target != args.expected_target:
+        fail("archive target %r does not match expected %r" % (target, args.expected_target))
+    if args.expected_source_sha and build_info.get("source_sha") != args.expected_source_sha:
+        fail("archive source SHA does not match expected source SHA")
+    expected_root = "s1-v%s-%s" % (version, target)
+    if root_name != expected_root or archive_path.name != expected_root + ".tar.gz":
+        fail("archive/root name does not match build-info version and target")
+
+
+def check_file_hashes(root, build_info):
+    hashes = build_info.get("files_sha256")
+    if not isinstance(hashes, dict) or set(hashes) != set(MEMBER_FILES) - {"BUILD-INFO.json"}:
+        fail("build-info file hash manifest is incomplete")
+    for name, expected_hash in hashes.items():
+        if not re.fullmatch(r"[0-9a-f]{64}", str(expected_hash)):
+            fail("invalid SHA-256 for %s" % name)
+        if sha256_path(root / name) != expected_hash:
+            fail("SHA-256 mismatch for %s" % name)
+
+
+def verify_archive(args):
+    archive_path = Path(args.archive).resolve()
+    if not archive_path.is_file():
+        fail("archive is not a regular file: %s" % archive_path)
+    members = inspect_members(archive_path)
+    root_name = archive_layout(members)
     with tempfile.TemporaryDirectory(prefix="s1-release-smoke-") as temporary:
         temporary_path = Path(temporary)
         extracted = temporary_path / "extracted"
         extract_safely(archive_path, extracted, members)
         root = extracted / root_name
-        try:
-            build_info = json.loads((root / "BUILD-INFO.json").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            fail("invalid BUILD-INFO.json: %s" % error)
-        if not isinstance(build_info, dict) or build_info.get("schema") != "systemone-build-info-v1":
-            fail("invalid build-info schema")
-        version = build_info.get("version")
-        target = build_info.get("target")
-        if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
-            fail("invalid build-info version")
-        if target not in TARGETS:
-            fail("invalid build-info target")
-        target_metadata = TARGETS[target]
-        expected_identity = {
-            "name": "s1",
-            "platform": target_metadata["platform"],
-            "architecture": target_metadata["architecture"],
-            "features": target_metadata["features"],
-            "system_requirements": target_metadata["requirements"],
-            "backend": {
-                "llama_cpp_rs_crate": NATIVE_CRATE_VERSION,
-                "llama_cpp_sys_crate": NATIVE_CRATE_VERSION,
-                "llama_cpp_commit": LLAMA_CPP_COMMIT,
-                "native_libraries": "static",
-                "metal_library_embedded": target == "aarch64-apple-darwin",
-            },
-            "distribution": {
-                "contains_model_weights": False,
-                "developer_id_signed": False,
-                "apple_notarized": False,
-            },
-        }
-        for key, expected_value in expected_identity.items():
-            if build_info.get(key) != expected_value:
-                fail("invalid build-info %s" % key)
-        if not isinstance(build_info.get("rust_version"), str) or not build_info["rust_version"]:
-            fail("invalid build-info Rust version")
-        if args.expected_version and version != args.expected_version:
-            fail("archive version %r does not match expected %r" % (version, args.expected_version))
-        if args.expected_target and target != args.expected_target:
-            fail("archive target %r does not match expected %r" % (target, args.expected_target))
-        if args.expected_source_sha and build_info.get("source_sha") != args.expected_source_sha:
-            fail("archive source SHA does not match expected source SHA")
-        expected_root = "s1-v%s-%s" % (version, target)
-        if root_name != expected_root or archive_path.name != expected_root + ".tar.gz":
-            fail("archive/root name does not match build-info version and target")
-        validate_ref(build_info.get("source_ref"), version)
-        expected_tag = "v" + version if build_info.get("source_ref", "").startswith("refs/tags/") else None
-        if build_info.get("tag") != expected_tag:
-            fail("build-info tag is inconsistent with source_ref")
-        if not SOURCE_SHA_RE.fullmatch(str(build_info.get("source_sha", ""))):
-            fail("invalid build-info source SHA")
-        hashes = build_info.get("files_sha256")
-        if not isinstance(hashes, dict) or set(hashes) != set(MEMBER_FILES) - {"BUILD-INFO.json"}:
-            fail("build-info file hash manifest is incomplete")
-        for name, expected_hash in hashes.items():
-            if not re.fullmatch(r"[0-9a-f]{64}", str(expected_hash)):
-                fail("invalid SHA-256 for %s" % name)
-            actual_hash = sha256_path(root / name)
-            if actual_hash != expected_hash:
-                fail("SHA-256 mismatch for %s" % name)
+        build_info = load_build_info(root)
+        check_expectations(args, build_info, archive_path, root_name)
+        check_file_hashes(root, build_info)
         binary = root / "s1"
         if not args.skip_execute:
             # Run from a directory outside both the source checkout and archive root.
-            run_json_command(binary, "--version", "systemone-version-v1", version, temporary_path)
+            run_json_command(binary, "--version", "systemone-version-v1", build_info["version"], temporary_path)
             run_json_command(binary, "--help", "systemone-help-v1", cwd=temporary_path)
         if args.check_linkage:
             if args.skip_execute:
                 fail("--check-linkage cannot be combined with --skip-execute")
-            check_linkage(binary, target)
+            check_linkage(binary, build_info["target"])
     print("verified %s sha256=%s" % (archive_path.name, sha256_path(archive_path)))
 
 
@@ -505,22 +348,25 @@ def build_parser():
     return parser
 
 
+def validate_ref_command(args):
+    version = workspace_version(Path(args.repo_root).resolve())
+    tag = validate_ref(args.ref, version, args.require_tag)
+    print(tag or version)
+
+
+COMMANDS = {
+    "validate-ref": validate_ref_command,
+    "package": package_archive,
+    "verify": verify_archive,
+    "checksums": write_checksums,
+}
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command == "validate-ref":
-            version = workspace_version(Path(args.repo_root).resolve())
-            tag = validate_ref(args.ref, version, args.require_tag)
-            print(tag or version)
-        elif args.command == "package":
-            package_archive(args)
-        elif args.command == "verify":
-            verify_archive(args)
-        elif args.command == "checksums":
-            write_checksums(args)
-        else:
-            parser.error("unknown command")
+        COMMANDS[args.command](args)
     except (ReleaseError, OSError, subprocess.SubprocessError) as error:
         print("release.py: error: %s" % error, file=sys.stderr)
         return 1
