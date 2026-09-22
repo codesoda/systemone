@@ -25,7 +25,7 @@ Inspected source snapshots (these are observations, not a dependency lockfile):
 | Repository | Inspected HEAD | Actual boundary |
 | --- | --- | --- |
 | openjev-rs | `8452ef0e5890497deb2cec95f16dc8d94d0c0c02` (pinned) | Library-only: `openjev-core` and `openjev-llama`. The former CLI/HTTP server was removed in this revision and reimplemented here |
-| laya-rs | `aa17c18ac4c28ff700f407b4a384b18a5d64e938` | Python baseline/assets/goldens; no Cargo workspace or Rust inference library yet |
+| laya-rs | `23fff422666fd5039998fd8a55ca57f7e40d224b` (pinned) | `crates/laya-core`: Rust runtime with MLX (Metal) and Candle (CPU) backends, parity-gated against the frozen Python goldens; Python baseline/assets/goldens retained for that gate |
 | gliner2-rs | `2883a7301d4de8e2af167e4ce2ca9d9d230f65d3` | Rust `gliner2-rs` package, imported as `gliner2_rs`; ONNX classification pipeline exists |
 
 The GLiNER checkout was locally named `gliners2`; its remote is codesoda/gliner2-rs. Do not mistake a local directory name for a different repository.
@@ -51,7 +51,7 @@ crates/
   systemone-http/          # Jev wire projection, Axum service, SDK contracts
   systemone-cli/           # binary: systemone
   systemone-openjev/       # wrapper over upstream library crates
-  systemone-laya/          # enabled only after upstream runtime gate
+  systemone-laya/          # laya-core adapter (feature-gated: laya-cpu, laya-metal)
   systemone-gliner2/       # wrapper over upstream classification library
   systemone-remote/        # shared HTTP transport, separate Vercel/OpenRouter adapters
 compat/                   # pinned SDK fixtures, request/response/error corpus
@@ -226,7 +226,7 @@ Every milestone ends with formatting, `cargo clippy --workspace --all-targets --
 | M2 Resident HTTP service, SDK compatibility | Done (JS SDK); Python SDK and overhead measurement open | [CHANGELOG](../../CHANGELOG.md), issues |
 | M3 Hosted Jev passthrough (Vercel, OpenRouter) | Planned | GitHub issues |
 | M4 GLiNER2 adapter | Planned; needs upstream library gate | GitHub issues |
-| M5 Laya Python baseline → Rust runtime → adapter | Planned; needs laya-rs | GitHub issues |
+| M5 Laya Python baseline → Rust runtime → adapter | Done as a source build (`laya-cpu`/`laya-metal`); binary packaging open | [CHANGELOG](../../CHANGELOG.md), issues |
 | M6 Cross-backend quality and performance | Planned | GitHub issues |
 | M7 Portable releases (Windows, signing, clean-machine smoke) | macOS/Linux archives ship; rest planned | GitHub issues |
 

@@ -206,6 +206,7 @@ impl DecisionHost for FakeHost {
                 fallback: None,
                 probability_status: Some("test".into()),
                 provider_request_id: None,
+                truncation: None,
             },
         })
     }

@@ -16,6 +16,14 @@ workflow.
   traits (`ModelStore`) that each backend reports as supported or not.
 - OpenJev backend over `openjev-core`/`openjev-llama` pinned by Git revision,
   with receipt-gated shared execution and explicit serial fallback.
+- Laya backend (`systemone-laya`, `kind = "laya"`) over `laya-core` pinned by
+  Git revision, behind the `laya-cpu` (Candle), `laya-accelerate` (Candle + Apple BLAS) and
+  `laya-metal` (MLX) features.
+  One batched forward pass per request, SHA-256-verified profile directories,
+  Metal warm-up at load, deterministic one-option Choice, empty-string default
+  for missing instructions, and `x-systemone-truncation` disclosure. Verified
+  end to end with the JS SDK smoke on CPU and Metal; numerical parity with the
+  upstream Python runtime is gated in laya-rs, not here.
 - Commands: `serve`, `run` (single request or `--jsonl` batch through one model
   load), `call`, `decide`, `noul`, `score`, `backends`, `models`,
   `config check|show`, `openjev models pull|path`, `openjev probe`.

@@ -17,11 +17,12 @@ configuration, not in code.
 · [Request a feature](https://github.com/codesoda/systemone/issues/new)
 
 > **Status:** the `s1` binary, layered configuration, HTTP service and the
-> OpenJev backend are implemented and were exercised against a real Metal
-> model, including the official TypeSafe JS SDK. Binary releases are built by
-> CI on `v*` tags. Laya, GLiNER2, Vercel and OpenRouter backends are planned;
-> enabling one today is a clear configuration error, not a silent fallback.
-> Only the Apple Silicon build has been run with real weights.
+> OpenJev and Laya backends are implemented and were exercised against real
+> Metal models, including the official TypeSafe JS SDK. Binary releases are
+> built by CI on `v*` tags and currently ship OpenJev only; Laya is a source
+> build. GLiNER2, Vercel and OpenRouter backends are planned; enabling one
+> today is a clear configuration error, not a silent fallback. Only the Apple
+> Silicon build has been run with real weights.
 
 ## Table of contents
 
@@ -85,10 +86,10 @@ coverage.
 | Kind | Implementation | Status |
 | --- | --- | --- |
 | `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | **Available.** Prompt/token parity and explicit serial fallback preserved |
+| `laya` | Bidirectional encoder with trained decision heads through [laya-core](https://github.com/codesoda/laya-rs) | **Available** with `--features laya-cpu` (Candle) or `laya-metal` (MLX, Apple Silicon). Parity with the upstream Python runtime is gated in laya-rs; not in binary releases yet |
 | `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
 | `openrouter` | Hosted Jev through OpenRouter | Planned |
 | `gliner2` | Runtime-defined label classification through gliner2-rs | Planned; needs upstream distribution API |
-| `laya` | Bidirectional encoder and trained decision heads through laya-rs | Planned; needs Rust runtime |
 
 Enable only the instances you need. Disabled local backends do not load
 weights; disabled remote backends do not read credentials. There is **no
@@ -98,6 +99,7 @@ silent local-to-cloud fallback**.
 
 - [Rust](https://www.rust-lang.org/)
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) through [llama-cpp-2](https://github.com/utilityai/llama-cpp-rs), via openjev-rs
+- [MLX](https://github.com/ml-explore/mlx) through [mlx-rs](https://github.com/oxideai/mlx-rs) and [Candle](https://github.com/huggingface/candle), via laya-rs
 - [Hugging Face Hub](https://huggingface.co/) for pinned, checksum-verified GGUF weights
 - [Axum](https://github.com/tokio-rs/axum) and [Tokio](https://tokio.rs/) for HTTP serving
 
@@ -187,6 +189,12 @@ GGML_METAL=OFF CARGO_TARGET_DIR=target-cpu \
 Keep CPU and Metal builds in separate target directories. Plain `cargo build`
 deliberately omits llama.cpp: configuration, listing and the HTTP plumbing
 work, but local inference returns `unavailable`.
+
+Add `laya-cpu` (any platform, Candle without BLAS), `laya-accelerate` (macOS,
+adds Apple's Accelerate BLAS) or `laya-metal` (Apple Silicon, MLX compiled from
+source; needs CMake, includes `laya-accelerate`) to the feature list for the
+Laya backend, for example `--features metal,laya-metal`. The build-time environment MLX needs is
+set in `.cargo/config.toml`.
 
 </details>
 
@@ -333,7 +341,8 @@ to hosted Jev; the response reports the actual model. `output_tokens` is zero
 because nothing is generated. Routing evidence travels in headers, so the JSON
 stays SDK-compatible: `x-systemone-backend`, `x-systemone-model`,
 `x-systemone-request-id`, `x-systemone-elapsed-ms`, `x-systemone-execution`,
-`x-systemone-fallback` and `x-systemone-probability-status`.
+`x-systemone-fallback`, `x-systemone-probability-status` and
+`x-systemone-truncation`.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -441,6 +450,28 @@ See [examples/systemone.config.toml](examples/systemone.config.toml) for the
 full shape, including disabled hosted backends. SystemOne never reads
 `OPENJEV_*` variables or upstream config files.
 
+A Laya instance points at a directory holding one pinned profile; there is no
+downloader, and every file is SHA-256 verified against laya-core's embedded
+manifest before it loads:
+
+```toml
+[backends.laya]
+kind = "laya"
+enabled = true
+
+[backends.laya.settings]
+profile = "english"          # english | multilingual | typed-decisions
+model_dir = "~/models/laya/english"
+device = "metal"             # cpu (laya-cpu build) or metal (laya-metal build)
+```
+
+The instance serves as `laya-<profile>`; `cache_dir` (default
+`~/Library/Caches/laya-rs`, `~/.cache/laya-rs` elsewhere) holds the Metal
+kernel library. Laya batches every question of a request into one forward
+pass, accepts any JSON state, answers a one-option Choice deterministically
+(the network needs two options) and treats missing `instructions` as empty
+text. Truncation is disclosed in `x-systemone-truncation`.
+
 ## Models
 
 | Model ID | Quantization | Approx. download | When to try it |
@@ -470,7 +501,8 @@ registry and re-verifies every cached file by SHA-256 before it says
   per request; Choice has 1–16 options, Score 2–16 levels; bodies are limited to
   1 MiB. Duplicate JSON keys are rejected. OpenJev accepts integer-only JSON
   state; floats are a validation error.
-- **One backend kind today.** Hosted, GLiNER2 and Laya adapters are planned.
+- **Two local backend kinds today.** Hosted and GLiNER2 adapters are planned.
+  Laya is not in the binary releases yet (build from source).
 - **Validation differs by platform.** Only the Apple Silicon Metal build has
   been run with real weights. Linux CI builds, tests without weights, packages
   and checks linkage. No Windows build.
@@ -492,7 +524,8 @@ registry and re-verifies every cached file by SHA-256 before it says
 - [x] Resident Jev-compatible HTTP service, verified with the official JS SDK.
 - [x] Tagged binary releases for Apple Silicon and Linux x86-64.
 - [ ] Hosted Jev passthrough (Vercel AI Gateway, OpenRouter).
-- [ ] GLiNER2 and Laya backends behind their upstream library gates.
+- [x] Laya backend behind laya-core's parity gate (source build).
+- [ ] GLiNER2 backend behind its upstream library gate; Laya in binary releases.
 - [ ] Cross-backend quality and performance fixtures.
 - [ ] Windows build; signed and notarized macOS binaries.
 

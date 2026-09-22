@@ -626,8 +626,15 @@ pub fn call<R: Read, W: Write, E: Write>(
 struct BackendsOutput {
     schema: &'static str,
     default_backend: Option<String>,
-    build: &'static str,
+    /// Which runtimes this binary links, per kind.
+    build: BuildFeatures,
     backends: Vec<backends::BackendListing>,
+}
+
+#[derive(Serialize)]
+struct BuildFeatures {
+    openjev: &'static str,
+    laya: &'static str,
 }
 
 pub fn backends<W: Write>(resolved: &Resolved, stdout: &mut W) -> Result<(), CliError> {
@@ -639,7 +646,10 @@ pub fn backends<W: Write>(resolved: &Resolved, stdout: &mut W) -> Result<(), Cli
             .default_backend
             .as_ref()
             .map(ToString::to_string),
-        build: systemone_openjev::compiled_feature(),
+        build: BuildFeatures {
+            openjev: systemone_openjev::compiled_feature(),
+            laya: systemone_laya::compiled_feature(),
+        },
         backends: configured.iter().map(backends::listing).collect(),
     };
     output::write_json(stdout, &output, resolved.config.output.pretty)

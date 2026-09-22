@@ -42,8 +42,9 @@ merged.
 ## Development checks
 
 Rust 1.95 is pinned by `rust-toolchain.toml`. The default build compiles no
-llama.cpp and runs offline; `native`, `metal`, and `cuda` on `systemone-cli`
-add local inference and need CMake plus a C/C++ toolchain.
+inference runtime and runs offline; `native`, `metal`, and `cuda` on
+`systemone-cli` add OpenJev, and `laya-cpu` / `laya-metal` add Laya. All need
+CMake plus a C/C++ toolchain; `laya-metal` compiles MLX from source (macOS).
 
 Run these before you push:
 
@@ -60,12 +61,24 @@ If you touch the adapter, the HTTP service, or anything under `crates/`, also
 build and run the native feature once. On Apple Silicon:
 
 ```sh
-cargo clippy -p systemone-cli --all-targets --features metal -- -D warnings
-cargo build -p systemone-cli --features metal
+cargo clippy -p systemone-cli --all-targets --features metal,laya-metal -- -D warnings
+cargo build -p systemone-cli --features metal,laya-metal
 ```
 
-CI runs the same checks on Linux for every pull request. The macOS build runs
-only for release tags.
+CI runs the same checks on Linux for every pull request (with `laya-cpu`). The
+macOS build runs only for release tags.
+
+### SDK smoke
+
+The only backend-specific test SystemOne runs is the JS SDK smoke against a
+real `s1 serve`; everything deeper (numerical parity, goldens, tolerances)
+belongs to the backend's own repository. With a server running:
+
+```sh
+cd compat/sdk-js && npm ci
+SYSTEMONE_BASE_URL=http://127.0.0.1:8080 node smoke.mjs                              # openjev
+SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=laya node smoke.mjs # laya
+```
 
 ### Changing dependencies
 
