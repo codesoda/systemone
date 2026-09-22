@@ -109,33 +109,44 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
 
-      - name: Validate release ref, license bundle, and packaging tests
+      - name: Validate release ref
+        shell: bash
+        run: python3 scripts/release.py validate-ref --ref "$GITHUB_REF"
+
+      # Lint, test and packaging suites run on Linux only; macOS minutes are
+      # expensive, so the macOS job only builds, smokes and packages.
+      - name: Check license bundle and packaging tests
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/release.py validate-ref --ref "$GITHUB_REF"
           python3 scripts/check_third_party_licenses.py
           python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
 
       - name: Check formatting
+        if: runner.os == 'Linux'
         shell: bash
         run: cargo fmt --all -- --check
 
       - name: Clippy default (backend-disabled) workspace
+        if: runner.os == 'Linux'
         shell: bash
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Test default (backend-disabled) workspace
+        if: runner.os == 'Linux'
         shell: bash
         run: cargo test --locked --workspace --all-targets
 
       - name: Clippy native workspace
+        if: runner.os == 'Linux'
         shell: bash
         env:
           WORKSPACE_FEATURES: ${{ matrix.workspace_features }}
         run: cargo clippy --locked --workspace --all-targets --features "$WORKSPACE_FEATURES" -- -D warnings
 
       - name: Test native workspace without model downloads
+        if: runner.os == 'Linux'
         shell: bash
         env:
           WORKSPACE_FEATURES: ${{ matrix.workspace_features }}
