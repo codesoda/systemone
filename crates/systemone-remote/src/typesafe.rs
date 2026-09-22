@@ -259,7 +259,10 @@ impl TypesafeHost {
 
     /// Map a non-2xx or unparseable upstream reply to a sanitized
     /// `HostError::Upstream`. The bearer key value is redacted from any
-    /// upstream-echoed message.
+    /// upstream-echoed message. The upstream reports errors both as the
+    /// shared envelope (`{"error_type","message"}`) and FastAPI-style
+    /// (`{"detail": string | [{"msg": …}]}`); the status always passes
+    /// through unchanged.
     fn upstream_error(&self, reply: &RemoteReply) -> HostError {
         let body = std::str::from_utf8(&reply.body).unwrap_or("");
         if let Ok(value) = wire::parse_strict(body)
@@ -274,6 +277,35 @@ impl TypesafeHost {
                 status: Some(reply.status),
                 code,
                 message: self.sanitize(message),
+            };
+        }
+        if let Ok(value) = wire::parse_strict(body)
+            && let Value::Object(fields) = value
+            && let Some(detail) = fields.get("detail")
+        {
+            let code = if matches!(detail, Value::Array(_)) {
+                "validation_error"
+            } else {
+                "upstream_error"
+            };
+            let message = match detail {
+                Value::String(message) => message.clone(),
+                Value::Array(items) => items
+                    .iter()
+                    .filter_map(|item| item.get("msg").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+                _ => String::new(),
+            };
+            let message = if message.is_empty() {
+                format!("upstream returned HTTP {}", reply.status)
+            } else {
+                message
+            };
+            return HostError::Upstream {
+                status: Some(reply.status),
+                code: Some(code.to_owned()),
+                message: self.sanitize(&message),
             };
         }
         HostError::Upstream {
@@ -353,6 +385,11 @@ impl DecisionHost for TypesafeHost {
             .resolve_model(request.model.as_deref())?
             .to_owned();
         context.check()?;
+        // SystemOne's service contract rejects floats on the wire so every
+        // backend behaves identically; the upstream accepts them, so the
+        // adapter enforces the rule before sending (openjev enforces it
+        // during conversion).
+        reject_floats(&request.state, "state").map_err(HostError::Validation)?;
         let timeout = Self::remaining_timeout(context)?;
         // Routing selectors never reach this body; `render_request`
         // projects only the neutral request.
@@ -391,6 +428,29 @@ impl DecisionHost for TypesafeHost {
     fn shutdown(&mut self) -> Result<(), HostError> {
         // The blocking client needs no teardown.
         Ok(())
+    }
+}
+
+/// Reject floats anywhere inside `value`, naming the first offending
+/// position via `path`. The wire format carries whole numbers only, so the
+/// service contract is identical across backends; the hosted upstream is
+/// permissive, so the adapter enforces the rule locally.
+fn reject_floats(value: &Value, path: &str) -> Result<(), String> {
+    match value {
+        Value::Number(number) if number.is_f64() => Err(format!("{path} must not contain floats")),
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                reject_floats(item, &format!("{path}[{index}]"))?;
+            }
+            Ok(())
+        }
+        Value::Object(fields) => {
+            for (key, field) in fields {
+                reject_floats(field, &format!("{path}.{key}"))?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
     }
 }
 

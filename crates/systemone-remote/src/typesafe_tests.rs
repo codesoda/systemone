@@ -591,3 +591,63 @@ fn settings_reject_secret_values_and_bad_env_names() {
     );
     assert!(serde_json::from_str::<TypesafeSettings>(r#"{"api_key_env":"X","extra":1}"#).is_err());
 }
+
+#[test]
+fn floats_in_state_are_rejected_before_sending() {
+    let body = br#"{"state":{"nested":{"count":1.5}},"questions":{"worth":{"type":"noul","criteria":{"true":"it works"}}}}"#;
+    let request = wire::parse_request(body).expect("parse").request;
+    let server = MockServer::start(Script::Reply(200, upstream_ok()));
+    let mut host = host(&server.base());
+    let error = systemone_core::DecisionHost::evaluate(&mut host, &request, &context_no_deadline())
+        .expect_err("floats must be rejected");
+    assert!(
+        matches!(error, HostError::Validation(ref message) if message.contains("state.nested.count")),
+        "expected a validation error naming the float position, got {error:?}"
+    );
+    // Rejected locally: nothing was sent, so nothing was billed.
+    let recorded = server.recorded.lock().expect("recorded lock");
+    assert!(recorded.is_empty(), "no upstream request may be sent");
+}
+
+#[test]
+fn upstream_detail_string_error_passes_through() {
+    let server = MockServer::start(Script::Reply(
+        400,
+        r#"{"detail":"Noul question must have criteria or instructions: q"}"#.to_owned(),
+    ));
+    let mut host = host(&server.base());
+    let error = evaluate(&mut host).expect_err("must fail");
+    let HostError::Upstream {
+        status,
+        code,
+        message,
+    } = &error
+    else {
+        panic!("expected HostError::Upstream, got {error:?}");
+    };
+    assert_eq!(*status, Some(400));
+    assert_eq!(code.as_deref(), Some("upstream_error"));
+    assert!(message.contains("Noul question must have criteria or instructions"));
+}
+
+#[test]
+fn upstream_detail_array_error_passes_through() {
+    let server = MockServer::start(Script::Reply(
+        422,
+        r#"{"detail":[{"type":"missing","loc":["body","model"],"msg":"Field required"}]}"#
+            .to_owned(),
+    ));
+    let mut host = host(&server.base());
+    let error = evaluate(&mut host).expect_err("must fail");
+    let HostError::Upstream {
+        status,
+        code,
+        message,
+    } = &error
+    else {
+        panic!("expected HostError::Upstream, got {error:?}");
+    };
+    assert_eq!(*status, Some(422));
+    assert_eq!(code.as_deref(), Some("validation_error"));
+    assert!(message.contains("Field required"));
+}
