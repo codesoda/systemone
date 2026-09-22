@@ -466,6 +466,7 @@ pub fn host_error(error: &HostError) -> Response {
         HostError::Unsupported(message) => {
             api_error(StatusCode::UNPROCESSABLE_ENTITY, "unsupported", message)
         }
+        HostError::NotFound(message) => api_error(StatusCode::NOT_FOUND, "not_found", message),
         HostError::Unavailable(message) => {
             tracing::error!(error = %message, "backend unavailable");
             api_error(
@@ -749,7 +750,8 @@ mod tests {
 
         let unknown = REQUEST.replacen("{", r#"{"backend":"nope","#, 1);
         let (status, _, body) = call(&app, post(&unknown)).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error_type"], "not_found");
         assert!(
             body["message"]
                 .as_str()
@@ -757,13 +759,16 @@ mod tests {
                 .contains("unknown backend")
         );
 
+        // A model name never selects a backend; an unserved model is 404 like
+        // Jev, which the official SDK maps to its not-found error path.
         let by_model = REQUEST.replace("jev-latest", "fake-other");
         let (status, _, body) = call(&app, post(&by_model)).await;
         assert_eq!(
             status,
-            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::NOT_FOUND,
             "model never selects a backend"
         );
+        assert_eq!(body["error_type"], "not_found");
         assert!(body["message"].as_str().unwrap().contains("not served"));
     }
 

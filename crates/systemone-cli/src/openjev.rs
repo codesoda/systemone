@@ -17,6 +17,9 @@ use crate::{
 };
 
 pub const PROBE_CHILD_ENV: &str = "SYSTEMONE_OPENJEV_PROBE_CHILD";
+/// `openjev-llama` gates unverified shared/batch candidates behind this
+/// variable in the child process; it is the library's guard, not ours.
+const LIBRARY_PROBE_CHILD_ENV: &str = "OPENJEV_PROBE_CHILD";
 
 fn select(
     resolved: &Resolved,
@@ -128,13 +131,12 @@ fn probe_command<W: Write, E: Write>(
             receipt_path: None,
             enabled,
         };
+        // A completed probe (pass or fail) is a successful child run; the
+        // report carries `passed`/`failure_reason` and the parent decides the
+        // process outcome. Only a crash before the report is a child failure.
         output::write_json(stdout, &report, pretty)
             .map_err(|error| CliError::runtime("output_io", error.to_string()))?;
-        return if enabled {
-            Ok(())
-        } else {
-            Err(CliError::runtime("probe_failed", "probe did not pass"))
-        };
+        return Ok(());
     }
 
     // Parent: establish the exact probe identity and suspend prior receipts
@@ -156,6 +158,7 @@ fn probe_command<W: Write, E: Write>(
         .arg(&settings.model_label)
         .args(["--mode", mode.as_str()])
         .env(PROBE_CHILD_ENV, "1")
+        .env(LIBRARY_PROBE_CHILD_ENV, "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());

@@ -157,7 +157,7 @@ impl Registry {
                         "backend {id} is configured but not enabled"
                     )))
                 } else {
-                    Err(HostError::validation(format!("unknown backend {id}")))
+                    Err(HostError::not_found(format!("unknown backend {id}")))
                 }
             }
             None => self.default_backend.clone().ok_or_else(|| {
@@ -187,7 +187,7 @@ impl Registry {
         let worker = self
             .workers
             .get(backend)
-            .ok_or_else(|| HostError::validation(format!("unknown backend {backend}")))?;
+            .ok_or_else(|| HostError::not_found(format!("unknown backend {backend}")))?;
         if !worker.ready.load(Ordering::Acquire) {
             return Err(HostError::unavailable(format!(
                 "backend {backend} is not ready"

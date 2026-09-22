@@ -12,6 +12,9 @@ pub enum HostError {
     /// The request is well formed but this host cannot satisfy it.
     #[error("{0}")]
     Unsupported(String),
+    /// The named backend or model does not exist here (HTTP 404, like Jev).
+    #[error("{0}")]
+    NotFound(String),
     /// The host (or its build/device/model) is not available for work.
     #[error("{0}")]
     Unavailable(String),
@@ -43,6 +46,7 @@ impl HostError {
         match self {
             Self::Validation(_) => "validation",
             Self::Unsupported(_) => "unsupported",
+            Self::NotFound(_) => "not_found",
             Self::Unavailable(_) => "unavailable",
             Self::Overloaded => "overloaded",
             Self::Timeout => "timeout",
@@ -68,6 +72,10 @@ impl HostError {
 
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self::Unsupported(message.into())
+    }
+
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::NotFound(message.into())
     }
 
     pub fn unavailable(message: impl Into<String>) -> Self {

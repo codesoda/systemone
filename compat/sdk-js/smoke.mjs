@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { TypeSafeClient, choice, noul, score } from "@typesafe-ai/sdk";
 
-const baseURL = process.env.OPENJEV_BASE_URL ?? "http://127.0.0.1:8080";
-const apiKey = process.env.OPENJEV_API_KEY ?? "openjev-local-sdk-smoke";
+const baseURL = process.env.SYSTEMONE_BASE_URL ?? "http://127.0.0.1:8080";
+const apiKey = process.env.SYSTEMONE_API_KEY ?? "systemone-local-sdk-smoke";
 const client = new TypeSafeClient({
   apiKey,
   baseURL,

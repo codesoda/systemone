@@ -109,7 +109,7 @@ impl Capabilities {
             Some(model) if self.model_aliases.iter().any(|alias| alias == model) => {
                 Ok(&self.model.id)
             }
-            Some(model) => Err(HostError::validation(format!(
+            Some(model) => Err(HostError::not_found(format!(
                 "model {model:?} is not served by this backend (serving {})",
                 self.model.id
             ))),

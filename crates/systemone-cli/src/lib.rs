@@ -89,6 +89,11 @@ impl From<HostError> for CliError {
                 message,
                 class: ErrorClass::Validation,
             },
+            HostError::NotFound(message) => Self {
+                code: "not_found".to_owned(),
+                message,
+                class: ErrorClass::Validation,
+            },
             other => Self::runtime(other.code(), other.to_string()),
         }
     }

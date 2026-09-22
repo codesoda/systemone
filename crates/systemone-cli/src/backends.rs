@@ -93,7 +93,7 @@ pub fn configure_one(config: &Config, selector: Option<&str>) -> Result<Configur
     let backend = config
         .backends
         .get(&id)
-        .ok_or_else(|| HostError::validation(format!("unknown backend {id}")))?;
+        .ok_or_else(|| HostError::not_found(format!("unknown backend {id}")))?;
     Ok(Configured {
         id: id.clone(),
         config: backend.clone(),
