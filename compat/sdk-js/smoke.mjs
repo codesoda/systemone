@@ -31,9 +31,6 @@ const result = await client.systemOne({
 
 assert.equal(typeof models[0].description, "string");
 assert.equal(typeof models[0].release_date, "string");
-// A local backend reports the configured model identity; a hosted
-// passthrough may resolve an alias like "jev-latest" to a concrete version
-// (e.g. "jev-1.13.0"), so only require a non-empty identity here.
 assert.equal(typeof result.model, "string");
 assert.ok(result.model.length > 0);
 assert.deepEqual(Object.keys(result.answers), ["route", "review", "urgency"]);
@@ -43,8 +40,6 @@ const probability = (value) => {
   assert.ok(Math.abs(value * 100 - Math.round(value * 100)) < 1e-9);
 };
 const distribution = (values, labels) => {
-  // The wire format keys probabilities by label; upstream may emit them
-  // in any order, so compare as sets, not sequences.
   assert.deepEqual([...Object.keys(values)].sort(), [...labels].sort());
   Object.values(values).forEach(probability);
   // Independent two-decimal rounding need not sum to precisely one.
@@ -64,8 +59,6 @@ assert.deepEqual(urgency.legend, { "0": "low", "1": "medium", "2": "high" });
 probability(urgency.confidence);
 distribution(urgency.probabilities, ["0", "1", "2"]);
 assert.ok(Number.isSafeInteger(result.usage.input_tokens) && result.usage.input_tokens > 0);
-// Local backends report zero output tokens; hosted upstreams bill real
-// ones. Either way the value must be a safe non-negative integer.
 assert.ok(Number.isSafeInteger(result.usage.output_tokens) && result.usage.output_tokens >= 0);
 
 let rejected = false;
