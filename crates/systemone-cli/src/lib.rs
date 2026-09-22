@@ -243,6 +243,7 @@ pub fn run_parsed_with_io<R: Read, W: Write, E: Write>(
                 version: env!("CARGO_PKG_VERSION"),
                 build: build_identity(),
                 openjev: systemone_openjev::compiled_feature(),
+                laya: systemone_laya::compiled_feature(),
             };
             i32::from(output::write_json(stdout, &output, false).is_err())
         }

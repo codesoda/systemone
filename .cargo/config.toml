@@ -1,0 +1,14 @@
+# Build-time environment for the `laya-metal` feature. The vendored mlx-sys
+# build script reads these and laya-core's build script checks them, so the
+# linked MLX matches the residual metallib laya-core embeds. They are inert
+# for every other feature. MLX_RS_METAL_PATH keeps MLX's build output under
+# target/ instead of ~/.mlx/lib.
+[env]
+MLX_RS_METAL_JIT = "1"
+MACOSX_DEPLOYMENT_TARGET = "14.0"
+MLX_RS_METAL_PATH = { value = "target/mlx-metal", relative = true }
+
+# Fetch git dependencies with the system git so its credential helpers apply
+# (laya-rs is a private repository at the time of writing).
+[net]
+git-fetch-with-cli = true

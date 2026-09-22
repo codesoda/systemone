@@ -17,6 +17,10 @@ default = []
 native = ["systemone-openjev/native"]
 metal = ["native", "systemone-openjev/metal"]
 cuda = ["native", "systemone-openjev/cuda"]
+# Local Laya inference. `laya-cpu` is portable (Candle); `laya-metal` is
+# macOS-only (MLX) and also enables the CPU backend for mixed configs.
+laya-cpu = ["systemone-laya/laya-cpu"]
+laya-metal = ["laya-cpu", "systemone-laya/laya-metal"]
 
 [dependencies]
 clap.workspace = true
@@ -26,6 +30,7 @@ serde_json.workspace = true
 systemone-config.workspace = true
 systemone-core.workspace = true
 systemone-http.workspace = true
+systemone-laya.workspace = true
 systemone-openjev.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

@@ -3,6 +3,7 @@ members = [
     "crates/systemone-core",
     "crates/systemone-config",
     "crates/systemone-openjev",
+    "crates/systemone-laya",
     "crates/systemone-http",
     "crates/systemone-cli",
 ]
@@ -19,12 +20,14 @@ repository = "https://github.com/codesoda/systemone"
 systemone-core = { path = "crates/systemone-core" }
 systemone-config = { path = "crates/systemone-config" }
 systemone-openjev = { path = "crates/systemone-openjev" }
+systemone-laya = { path = "crates/systemone-laya" }
 systemone-http = { path = "crates/systemone-http" }
 
 # Upstream inference libraries are pinned to reviewed Git revisions. They must
 # never depend on SystemOne, and release builds must not use path overrides.
 openjev-core = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02" }
 openjev-llama = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02", default-features = false }
+laya-core = { git = "https://github.com/codesoda/laya-rs.git", rev = "23fff422666fd5039998fd8a55ca57f7e40d224b", default-features = false }
 
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
 clap = { version = "=4.6.7", features = ["derive", "string"] }
@@ -42,6 +45,13 @@ tracing-subscriber = "=0.3.23"
 futures-util = "=0.3.34"
 tempfile = "=3.27.0"
 tower = { version = "=0.5.2", features = ["util"] }
+
+# laya-core's MLX backend pins a patched mlx-sys (JIT Metal build) that lives in
+# the laya-rs repository. Cargo does not propagate a dependency's [patch]
+# table, so the same pin is repeated here; it only takes effect with
+# `--features laya-metal`.
+[patch.crates-io]
+mlx-sys = { git = "https://github.com/codesoda/laya-rs.git", rev = "23fff422666fd5039998fd8a55ca57f7e40d224b" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

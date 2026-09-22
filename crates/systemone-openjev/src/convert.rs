@@ -337,6 +337,7 @@ pub fn project(prepared: Prepared, readouts: Vec<Readout>) -> Result<Projected, 
             fallback,
             probability_status: Some(PROBABILITY_STATUS.to_owned()),
             provider_request_id: None,
+            truncation: None,
         },
     })
 }

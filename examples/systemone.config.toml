@@ -34,6 +34,18 @@ model = "jev-latest"
 [backends.cloud-openrouter.settings]
 api_key_env = "OPENROUTER_API_KEY"
 
-# Laya and GLiNER2 instances may be enabled only after their adapter/runtime
-# gates pass. Their artifact/device settings will be fixed by typed schemas
-# in M0 and their upstream library gates, not guessed in this example.
+# Laya: a directory holding one pinned profile (verified by SHA-256 at load).
+# Needs a build with --features laya-cpu (device = "cpu") or laya-metal.
+[backends.laya]
+kind = "laya"
+enabled = false
+
+[backends.laya.settings]
+profile = "english"                 # english | multilingual | typed-decisions
+model_dir = "~/models/laya/english"
+device = "cpu"                      # or "metal" on Apple Silicon
+# cache_dir = "~/Library/Caches/laya-rs"   # Metal kernel library location
+# precision = "f32"                        # "f16" is Metal-only, opt-in
+# verify_sha256 = true
+
+# GLiNER2 instances may be enabled only after the adapter/runtime gate passes.
