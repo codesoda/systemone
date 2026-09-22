@@ -31,10 +31,10 @@ Outputs:
 1. Type `s1 serve`, then show illustrative loading and
    readiness messages. Explain that it stays open in its own terminal.
 2. Clear the view. Type a real Choice curl request for support-ticket routing.
-   The illustrative JSON response appears at once, keeping the command on
-   screen; wait 2.2 seconds before the next scene.
+   The illustrative JSON response appears 0.3 seconds later, keeping the
+   command on screen; wait 2.2 seconds before the next scene.
 3. Clear the view. Type a Noul curl request detecting an explicit refund request.
-   Same immediate response and pause.
+   Same response delay and pause.
 
 `session.py` only prints: it does **not** execute the displayed commands.
 `scenes.json` contains the copyable request bodies and illustrative responses.

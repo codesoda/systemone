@@ -56,6 +56,7 @@ def main():
         for scene in scenes:
             header(scene["title"])
             type_command(curl_command(scene))
+            time.sleep(0.3)
             print("\n\033[1;35mResponse\033[0m")
             print(formatted_response(scene), flush=True)
             time.sleep(2.2)
