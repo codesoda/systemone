@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          linux='{"runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","expected_arch":"x86_64","package_features":"native","workspace_features":"systemone-cli/native,systemone-cli/laya-cpu"}'
+          linux='{"runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","expected_arch":"x86_64","package_features":"native","workspace_features":"systemone-cli/native,systemone-cli/laya-cpu,systemone-cli/gliner2"}'
           mac='{"runner":"macos-14","target":"aarch64-apple-darwin","expected_arch":"arm64","package_features":"metal","workspace_features":"systemone-cli/metal"}'
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "matrix=[$linux,$mac]" >> "$GITHUB_OUTPUT"

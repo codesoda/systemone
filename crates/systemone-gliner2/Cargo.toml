@@ -1,0 +1,29 @@
+[package]
+name = "systemone-gliner2"
+description = "SystemOne host adapter over gliner2-rs (GLiNER2.5 boundary classifier through ONNX Runtime)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Link gliner2-rs and ONNX Runtime. Without it the adapter validates settings
+# and reports `available = false`; `load` fails explicitly. CPU only.
+gliner2 = ["dep:gliner2-rs", "dep:anyhow"]
+
+[dependencies]
+anyhow = { workspace = true, optional = true }
+gliner2-rs = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+systemone-core.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
