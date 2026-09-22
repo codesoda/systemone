@@ -3,6 +3,7 @@ members = [
     "crates/systemone-core",
     "crates/systemone-config",
     "crates/systemone-openjev",
+    "crates/systemone-remote",
     "crates/systemone-http",
     "crates/systemone-cli",
 ]
@@ -19,6 +20,7 @@ repository = "https://github.com/codesoda/systemone"
 systemone-core = { path = "crates/systemone-core" }
 systemone-config = { path = "crates/systemone-config" }
 systemone-openjev = { path = "crates/systemone-openjev" }
+systemone-remote = { path = "crates/systemone-remote" }
 systemone-http = { path = "crates/systemone-http" }
 
 # Upstream inference libraries are pinned to reviewed Git revisions. They must

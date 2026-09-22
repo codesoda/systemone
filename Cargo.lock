@@ -2507,6 +2507,7 @@ dependencies = [
  "systemone-core",
  "systemone-http",
  "systemone-openjev",
+ "systemone-remote",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -2557,6 +2558,18 @@ dependencies = [
  "serde",
  "serde_json",
  "systemone-core",
+ "tracing",
+]
+
+[[package]]
+name = "systemone-remote"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "systemone-core",
+ "systemone-http",
  "tracing",
 ]
 

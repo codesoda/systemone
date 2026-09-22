@@ -83,6 +83,35 @@ try {
 }
 assert.ok(floatRejected, "unsupported floats must produce the SDK's 422 error path");
 
+// Optional, spend-bounded live leg: exercise the same SDK against the
+// hosted TypeSafe API directly. Runs only when the operator explicitly
+// acknowledges the spend and provides a key.
+if (process.env.SYSTEMONE_LIVE_SMOKE === "spend-acknowledged" && process.env.TYPESAFE_API_KEY) {
+  const live = new TypeSafeClient({
+    apiKey: process.env.TYPESAFE_API_KEY,
+    baseURL: "https://api.typesafe.ai/v1",
+    timeout: 120_000,
+    retry: { maxRetries: 0 },
+  });
+  const liveModels = await live.models.list();
+  assert.ok(liveModels.length > 0, "live catalogue must not be empty");
+  const liveResult = await live.systemOne({
+    model: "jev-latest",
+    state: { ticket: "live smoke", severity: 1 },
+    questions: { route: noul("Is this a live round trip?") },
+  });
+  assert.equal(liveResult.model, "jev-latest");
+  assert.equal(liveResult.answers.route.type, "noul");
+  assert.ok(Number.isSafeInteger(liveResult.usage.input_tokens));
+  console.log(JSON.stringify({
+    leg: "direct-typesafe",
+    baseURL: "https://api.typesafe.ai/v1",
+    model: liveResult.model,
+    usage: liveResult.usage,
+    status: "passed",
+  }));
+}
+
 console.log(JSON.stringify({
   sdk: "@typesafe-ai/sdk@0.6.0",
   source_commit: "66880ccded6cb642dc1809620c2b108c33730214",

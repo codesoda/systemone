@@ -9,6 +9,15 @@ workflow.
 
 ### Added
 
+- `typesafe` backend kind (`systemone-remote` crate): direct hosted Jev
+  passthrough to `https://api.typesafe.ai/v1/systemone` with a shared remote
+  HTTP transport (bounded response bodies, disabled redirects, single send,
+  no fallback), operator-configured API-key environment variable,
+  selector stripping, verbatim answer/usage passthrough, sanitized error
+  envelopes, and TypeSafe `/v1/models` catalogue validation. Includes
+  credential-free mock tests and an opt-in, spend-acknowledged live smoke
+  test (`TYPESAFE_API_KEY` + `SYSTEMONE_LIVE_SMOKE=spend-acknowledged`),
+  plus an env-gated direct-TypeSafe leg in the JS SDK smoke script.
 - Rust workspace with `systemone-core`, `systemone-config`, `systemone-openjev`,
   `systemone-http` and `systemone-cli` (binary `s1`).
 - Neutral `DecisionHost` trait (`capabilities`, `evaluate`, `shutdown`) that

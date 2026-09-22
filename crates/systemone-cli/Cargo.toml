@@ -27,6 +27,7 @@ systemone-config.workspace = true
 systemone-core.workspace = true
 systemone-http.workspace = true
 systemone-openjev.workspace = true
+systemone-remote.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

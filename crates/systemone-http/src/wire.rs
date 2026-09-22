@@ -420,6 +420,294 @@ fn render_answer(answer: &Answer) -> Value {
     Value::Object(object)
 }
 
+/// Render a neutral request as the Jev wire body used to call a
+/// Jev-compatible hosted API. `model` is the resolved model id; the
+/// SystemOne routing selectors are never part of the rendered body.
+#[must_use]
+pub fn render_request(request: &DecisionRequest, model: &str) -> Value {
+    let mut object = Map::new();
+    object.insert("model".to_owned(), Value::from(model));
+    object.insert("state".to_owned(), request.state.clone());
+    let mut questions = Map::new();
+    for (id, question) in &request.questions {
+        questions.insert(id.clone(), render_question(question));
+    }
+    object.insert("questions".to_owned(), Value::Object(questions));
+    Value::Object(object)
+}
+
+fn render_question(question: &Question) -> Value {
+    let mut object = Map::new();
+    match question {
+        Question::Choice(choice) => {
+            object.insert("type".to_owned(), Value::from("choice"));
+            if let Some(instructions) = &choice.instructions {
+                object.insert("instructions".to_owned(), instructions.clone());
+            }
+            let mut criteria = Map::new();
+            for (label, description) in &choice.criteria {
+                criteria.insert(label.clone(), description.clone());
+            }
+            object.insert("criteria".to_owned(), Value::Object(criteria));
+        }
+        Question::Noul(noul) => {
+            object.insert("type".to_owned(), Value::from("noul"));
+            if let Some(instructions) = &noul.instructions {
+                object.insert("instructions".to_owned(), instructions.clone());
+            }
+            if noul.true_description.is_some() || noul.false_description.is_some() {
+                let mut criteria = Map::new();
+                if let Some(description) = &noul.true_description {
+                    criteria.insert("true".to_owned(), description.clone());
+                }
+                if let Some(description) = &noul.false_description {
+                    criteria.insert("false".to_owned(), description.clone());
+                }
+                object.insert("criteria".to_owned(), Value::Object(criteria));
+            }
+        }
+        Question::Score(score) => {
+            object.insert("type".to_owned(), Value::from("score"));
+            if let Some(instructions) = &score.instructions {
+                object.insert("instructions".to_owned(), instructions.clone());
+            }
+            object.insert("criteria".to_owned(), Value::Array(score.levels.clone()));
+        }
+    }
+    Value::Object(object)
+}
+
+/// Parse a Jev-compatible response body into a neutral
+/// [`DecisionResponse`]. Structure is strict; unknown top-level and answer
+/// fields are permitted upstream extensions and ignored, except `id`, which
+/// is captured as the provider request id. Range and normalization checks
+/// stay with the host, which validates before returning.
+pub fn parse_response(bytes: &[u8]) -> Result<DecisionResponse, WireError> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| WireError::bad_json("response body must be valid UTF-8 JSON"))?;
+    let value = parse_strict(text)?;
+    let mut response = into_object(value, "response")?;
+    let model = match response.shift_remove("model") {
+        Some(Value::String(model)) if !model.is_empty() => model,
+        Some(_) => {
+            return Err(WireError::validation(
+                "response.model must be a nonempty string",
+            ));
+        }
+        None => return Err(WireError::validation("response.model is required")),
+    };
+    let provider_request_id = match response.shift_remove("id") {
+        Some(Value::String(id)) if id.len() <= 256 => Some(id),
+        None | Some(Value::Null) => None,
+        Some(_) => {
+            return Err(WireError::validation(
+                "response.id must be a string when provided",
+            ));
+        }
+    };
+    let usage = match response.shift_remove("usage") {
+        None | Some(Value::Null) => systemone_core::Usage::default(),
+        Some(value) => parse_usage(value)?,
+    };
+    let answers = match response.shift_remove("answers") {
+        Some(value) => into_object(value, "response.answers")?,
+        None => return Err(WireError::validation("response.answers is required")),
+    };
+    // Remaining fields are permitted upstream extensions.
+    let mut parsed = Vec::with_capacity(answers.len());
+    for (id, answer) in answers {
+        parsed.push((id.clone(), parse_answer(&id, answer)?));
+    }
+    Ok(DecisionResponse {
+        model,
+        answers: parsed,
+        usage,
+        diagnostics: systemone_core::Diagnostics {
+            provider_request_id,
+            ..systemone_core::Diagnostics::default()
+        },
+    })
+}
+
+fn parse_usage(value: Value) -> Result<systemone_core::Usage, WireError> {
+    let mut usage = into_object(value, "response.usage")?;
+    let input_tokens = optional_u64(
+        usage.shift_remove("input_tokens"),
+        "response.usage.input_tokens",
+    )?;
+    let output_tokens = optional_u64(
+        usage.shift_remove("output_tokens"),
+        "response.usage.output_tokens",
+    )?;
+    let cost = match usage.shift_remove("cost") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(require_number(&value, "response.usage.cost")?),
+    };
+    Ok(systemone_core::Usage {
+        input_tokens,
+        output_tokens,
+        cost,
+    })
+}
+
+fn optional_u64(value: Option<Value>, path: &str) -> Result<Option<u64>, WireError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| WireError::validation(format!("{path} must be a nonnegative integer"))),
+    }
+}
+
+fn require_number(value: &Value, path: &str) -> Result<f64, WireError> {
+    value
+        .as_f64()
+        .ok_or_else(|| WireError::validation(format!("{path} must be a number")))
+}
+
+fn optional_confidence(value: Option<Value>, path: &str) -> Result<Option<f64>, WireError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => require_number(&value, path).map(Some),
+    }
+}
+
+fn parse_answer(id: &str, value: Value) -> Result<Answer, WireError> {
+    let path = format!("response.answers.{id:?}");
+    let mut answer = into_object(value, &path)?;
+    let kind = match answer.shift_remove("type") {
+        Some(Value::String(kind)) => kind,
+        Some(_) => {
+            return Err(WireError::validation(format!(
+                "{path}.type must be a string"
+            )));
+        }
+        None => return Err(WireError::validation(format!("{path}.type is required"))),
+    };
+    let confidence = optional_confidence(
+        answer.shift_remove("confidence"),
+        &format!("{path}.confidence"),
+    )?;
+    match kind.as_str() {
+        "choice" => {
+            let choice = match answer.shift_remove("choice") {
+                Some(Value::String(choice)) => choice,
+                Some(_) => {
+                    return Err(WireError::validation(format!(
+                        "{path}.choice must be a string"
+                    )));
+                }
+                None => {
+                    return Err(WireError::validation(format!(
+                        "{path}.choice is required for choice"
+                    )));
+                }
+            };
+            let probabilities = match answer.shift_remove("probabilities") {
+                Some(value) => into_object(value, &format!("{path}.probabilities"))?,
+                None => {
+                    return Err(WireError::validation(format!(
+                        "{path}.probabilities is required for choice"
+                    )));
+                }
+            };
+            let mut pairs = Vec::with_capacity(probabilities.len());
+            for (label, probability) in probabilities {
+                let number =
+                    require_number(&probability, &format!("{path}.probabilities.{label:?}"))?;
+                pairs.push((label, number));
+            }
+            Ok(Answer::Choice(systemone_core::ChoiceAnswer {
+                choice,
+                probabilities: pairs,
+                confidence,
+            }))
+        }
+        "noul" => {
+            let probability_true = match answer.shift_remove("noul") {
+                Some(value) => require_number(&value, &format!("{path}.noul"))?,
+                None => {
+                    return Err(WireError::validation(format!(
+                        "{path}.noul is required for noul"
+                    )));
+                }
+            };
+            Ok(Answer::Noul(systemone_core::NoulAnswer {
+                probability_true,
+            }))
+        }
+        "score" => {
+            let score = match answer.shift_remove("score") {
+                Some(value) => require_number(&value, &format!("{path}.score"))?,
+                None => {
+                    return Err(WireError::validation(format!(
+                        "{path}.score is required for score"
+                    )));
+                }
+            };
+            let legend = match answer.shift_remove("legend") {
+                Some(value) => into_object(value, &format!("{path}.legend"))?,
+                None => {
+                    return Err(WireError::validation(format!(
+                        "{path}.legend is required for score"
+                    )));
+                }
+            };
+            let probabilities = match answer.shift_remove("probabilities") {
+                Some(value) => into_object(value, &format!("{path}.probabilities"))?,
+                None => {
+                    return Err(WireError::validation(format!(
+                        "{path}.probabilities is required for score"
+                    )));
+                }
+            };
+            let mut levels: Vec<(u64, Value)> = Vec::with_capacity(legend.len());
+            for (index, description) in legend {
+                let index = index.parse::<u64>().map_err(|_| {
+                    WireError::validation(format!("{path}.legend keys must be level indexes"))
+                })?;
+                levels.push((index, description));
+            }
+            levels.sort_by_key(|(index, _)| *index);
+            let mut numbers: Vec<(u64, f64)> = Vec::with_capacity(probabilities.len());
+            for (index, probability) in probabilities {
+                let index = index.parse::<u64>().map_err(|_| {
+                    WireError::validation(format!(
+                        "{path}.probabilities keys must be level indexes"
+                    ))
+                })?;
+                let number =
+                    require_number(&probability, &format!("{path}.probabilities.{index}"))?;
+                numbers.push((index, number));
+            }
+            numbers.sort_by_key(|(index, _)| *index);
+            if levels.len() != numbers.len()
+                || levels
+                    .iter()
+                    .zip(&numbers)
+                    .any(|((left, _), (right, _))| left != right)
+            {
+                return Err(WireError::validation(format!(
+                    "{path}.legend and probabilities must cover the same levels"
+                )));
+            }
+            Ok(Answer::Score(systemone_core::ScoreAnswer {
+                score,
+                probabilities: numbers.into_iter().map(|(_, number)| number).collect(),
+                confidence,
+                legend: levels
+                    .into_iter()
+                    .map(|(_, description)| description)
+                    .collect(),
+            }))
+        }
+        _ => Err(WireError::validation(format!(
+            "{path}.type must be choice, noul, or score"
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use systemone_core::{ChoiceAnswer, Diagnostics, NoulAnswer, ScoreAnswer, Usage};
@@ -491,6 +779,100 @@ mod tests {
             parse_request(deep.as_bytes()).unwrap_err().error_type,
             "validation_error"
         );
+    }
+
+    #[test]
+    fn renders_and_parses_hosted_round_trip() {
+        let body = br#"{
+          "backend":"cloud","model":"jev-latest",
+          "state":{"z":1.5,"a":null},
+          "questions":{
+            "pick":{"type":"choice","instructions":{"task":"pick"},"criteria":{"b":null,"a":{"why":"A"}}},
+            "truth":{"type":"noul","criteria":{"true":{"means":"yes"},"false":"Nope"}},
+            "rate":{"type":"score","instructions":[],"criteria":[null,{"level":"high"}]}
+          }
+        }"#;
+        let parsed = parse_request(body).unwrap();
+        let rendered = render_request(&parsed.request, "jev-latest");
+        // Routing selectors never leave the service.
+        assert!(rendered.get("backend").is_none());
+        assert_eq!(rendered["model"], "jev-latest");
+        assert_eq!(rendered["state"]["z"], 1.5);
+        assert_eq!(
+            serde_json::to_string(&rendered).unwrap(),
+            r#"{"model":"jev-latest","state":{"z":1.5,"a":null},"questions":{"pick":{"type":"choice","instructions":{"task":"pick"},"criteria":{"b":null,"a":{"why":"A"}}},"truth":{"type":"noul","criteria":{"true":{"means":"yes"},"false":"Nope"}},"rate":{"type":"score","instructions":[],"criteria":[null,{"level":"high"}]}}}"#
+        );
+        let response = parse_response(
+            br#"{"id":"req-42","provider":"typesafe","model":"jev-latest",
+              "answers":{
+                "pick":{"type":"choice","choice":"a","confidence":0.9,
+                        "probabilities":{"a":0.75,"b":0.25},"extra":1},
+                "truth":{"type":"noul","noul":1.0},
+                "rate":{"type":"score","score":2.0,"confidence":0.5,
+                        "legend":{"1":"mid","0":"low","2":"high"},
+                        "probabilities":{"2":0.6,"0":0.2,"1":0.2}}
+              },
+              "usage":{"input_tokens":30,"output_tokens":0,"cost":0.002}}"#,
+        )
+        .unwrap();
+        assert_eq!(response.model, "jev-latest");
+        assert_eq!(
+            response.diagnostics.provider_request_id.as_deref(),
+            Some("req-42")
+        );
+        assert_eq!(response.usage.input_tokens, Some(30));
+        assert_eq!(response.usage.output_tokens, Some(0));
+        assert_eq!(response.usage.cost, Some(0.002));
+        match &response.answers[0].1 {
+            Answer::Choice(choice) => {
+                assert_eq!(choice.choice, "a");
+                assert_eq!(choice.probabilities[0], ("a".to_owned(), 0.75));
+                assert_eq!(choice.confidence, Some(0.9));
+            }
+            other => panic!("{other:?}"),
+        }
+        match &response.answers[2].1 {
+            Answer::Score(score) => {
+                assert_eq!(
+                    score.legend,
+                    vec![
+                        serde_json::json!("low"),
+                        serde_json::json!("mid"),
+                        serde_json::json!("high")
+                    ]
+                );
+                assert_eq!(score.probabilities, vec![0.2, 0.2, 0.6]);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(response.validate(1e-6).is_ok());
+        // The rendered response keeps the upstream order and values.
+        let wire = serde_json::to_value(render_response(&response)).unwrap();
+        assert_eq!(wire["answers"]["rate"]["legend"]["1"], "mid");
+    }
+
+    #[test]
+    fn parse_response_rejects_structural_errors() {
+        for (body, reason) in [
+            (br#"{"answers":{}}"#.as_slice(), "model"),
+            (br#"{"model":"","answers":{}}"#, "nonempty"),
+            (br#"{"model":1,"answers":{}}"#, "string"),
+            (br#"{"model":"m","answers":{"q":{"type":"noul"}}}"#, "noul"),
+            (br#"{"model":"m","answers":{"q":{"type":"choice","choice":"a","probabilities":{"a":"x"}}}}"#, "number"),
+            (br#"{"model":"m","answers":{"q":{"type":"bogus"}}}"#, "choice"),
+            (
+                br#"{"model":"m","answers":{"q":{"type":"score","score":0,"noul":1,"legend":{"0":"a","1":"b"},"probabilities":{"0":0.5}}}}"#,
+                "same levels",
+            ),
+            (br#"{"model":"m","answers":{},"usage":{"input_tokens":-1}}"#, "nonnegative integer"),
+            (br#"{"model":"m","answers":{},"id":{}}"#, "string"),
+            (br#"{"model":"m","answers":[]}"#, "object"),
+        ] {
+            let error = parse_response(body).unwrap_err();
+            assert!(error.message.contains(reason), "{} for {body:?}", error.message);
+            assert_eq!(error.error_type, "validation_error");
+        }
+        assert!(parse_response(b"\xff").is_err());
     }
 
     #[test]

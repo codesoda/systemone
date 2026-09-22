@@ -10,7 +10,7 @@ Applies to codesoda/systemone, codesoda/openjev-rs, codesoda/laya-rs and codesod
 
 Build a standalone Rust `systemone` executable and embeddable library that provide one typed-decision interface over local inference libraries and hosted Jev. SystemOne owns configuration, API compatibility, backend selection, service queues, authentication, timeouts, telemetry and packaging. Underlying projects own tokenization, model loading, inference, native device integration and model-specific correctness.
 
-Required backends: OpenJev, Laya, GLiNER2, Vercel AI Gateway and OpenRouter. A backend instance is a named configuration entry, not a vendor name or an automatic router. Multiple instances of one vendor may use different models/devices/settings.
+Required backends: OpenJev, Laya, GLiNER2, TypeSafe, Vercel AI Gateway and OpenRouter. A backend instance is a named configuration entry, not a vendor name or an automatic router. Multiple instances of one vendor may use different models/devices/settings.
 
 Deliver a convenient resident HTTP service and one-shot CLI on macOS, Linux and Windows. Local model weights load once per enabled instance at startup, not once per HTTP request. Enabled does not mean universally supported: unsupported build/device/capability combinations must fail explicitly.
 
@@ -53,7 +53,7 @@ crates/
   systemone-openjev/       # wrapper over upstream library crates
   systemone-laya/          # enabled only after upstream runtime gate
   systemone-gliner2/       # wrapper over upstream classification library
-  systemone-remote/        # shared HTTP transport, separate Vercel/OpenRouter adapters
+  systemone-remote/        # shared HTTP transport; direct TypeSafe adapter; future Vercel/OpenRouter adapters
 compat/                   # pinned SDK fixtures, request/response/error corpus
 benchmarks/               # cross-backend quality and service performance
 ```
@@ -163,9 +163,22 @@ No per-question routing in v1. One request goes to one selected instance. There 
 
 SDK compatibility gate must pin actual TypeSafe Python/JS SDK versions and include ordinary requests with no extension. Unknown field acceptance, criteria forms, precision and error shapes are verified, not guessed. Publish supported subset/limitations if any gate fails.
 
-## 6. Vercel and OpenRouter passthrough
+## 6. Hosted Jev backends: direct TypeSafe, Vercel and OpenRouter
 
-Both are required first-class adapters, not optional future inspiration.
+All three are required first-class adapters, not optional future inspiration. `typesafe` is shipped (§6a); the Vercel and OpenRouter passthroughs are planned.
+
+### 6a. Direct TypeSafe backend (shipped)
+
+`kind = "typesafe"` calls `https://api.typesafe.ai/v1/systemone` directly, with no intermediary. It lives in `systemone-remote` alongside the shared remote transport and future passthrough adapters.
+
+- Base URL is fixed in typed operator config (`https://api.typesafe.ai`); request-provided destinations are rejected. HTTPS only, except explicit loopback test endpoints.
+- The API key is read at load time from the environment variable named by `backends.<id>.settings.api_key_env`; the key never appears in config, `describe()` output or logs.
+- SystemOne routing selectors (`backend` field / `X-SystemOne-Backend`) are stripped before forwarding.
+- Upstream answers, usage and model identity pass through verbatim; compatible error envelopes pass through sanitized (bearer key redacted, control characters stripped, messages truncated).
+- Single send: no inference POST retries, no provider fallback.
+- `/v1/models` is TypeSafe's own catalogue, validated and forwarded as-is; no OpenRouter-style normalization.
+
+### 6b. Vercel and OpenRouter passthrough (planned)
 
 | Kind | Configured base URL | POST path | Auth |
 | --- | --- | --- | --- |
@@ -224,7 +237,7 @@ Every milestone ends with formatting, `cargo clippy --workspace --all-targets --
 | M0 Contracts and build feasibility | Done except the llama.cpp + ort linker check | [CHANGELOG](../../CHANGELOG.md), issues |
 | M1 OpenJev adapter, one-shot CLI, config | Done | [CHANGELOG](../../CHANGELOG.md) |
 | M2 Resident HTTP service, SDK compatibility | Done (JS SDK); Python SDK and overhead measurement open | [CHANGELOG](../../CHANGELOG.md), issues |
-| M3 Hosted Jev passthrough (Vercel, OpenRouter) | Planned | GitHub issues |
+| M3 Hosted Jev backends: direct TypeSafe (done), Vercel + OpenRouter passthrough | Partial | [CHANGELOG](../../CHANGELOG.md) |
 | M4 GLiNER2 adapter | Planned; needs upstream library gate | GitHub issues |
 | M5 Laya Python baseline → Rust runtime → adapter | Planned; needs laya-rs | GitHub issues |
 | M6 Cross-backend quality and performance | Planned | GitHub issues |
@@ -248,7 +261,7 @@ Laya-MLX reports useful small optimizations, not a universal further 10× speedu
 
 ## 11. Blockers and decision log
 
-Resolved: separate repo; SystemOne-owned common config/API/queue; upstream library independence; five explicit backend kinds including both hosted gateways; request override/default config; no cloud failover; in-memory queues; CWD config layering; CPU cross-platform baseline; library-first Laya work.
+Resolved: separate repo; SystemOne-owned common config/API/queue; upstream library independence; six explicit backend kinds (OpenJev, direct TypeSafe, Vercel AI Gateway, OpenRouter, Laya, GLiNER2) including both hosted gateways; request override/default config; no cloud failover; in-memory queues; CWD config layering; CPU cross-platform baseline; library-first Laya work.
 
 Open implementation decisions with required resolution gates:
 
