@@ -16,8 +16,8 @@ standard-library notice `RUST-COPYRIGHT-library.html`.
   and evaluation logic it ports; see openjev-rs's own `THIRD_PARTY.md` for the
   preserved copyright notice. The Jev wire projection in `systemone-http` was
   moved here from openjev-rs.
-- [codesoda/laya-rs](https://github.com/codesoda/laya-rs) (`laya-core`), MIT,
-  pinned by Git revision in `Cargo.toml` and enabled by the `laya-cpu` /
+- [codesoda/laya-rs](https://github.com/codesoda/laya-rs) (`laya-core`),
+  Apache-2.0, pinned by Git revision in `Cargo.toml` and enabled by the `laya-cpu` /
   `laya-metal` features. It reproduces the open
   [Laya](https://github.com/NandhaKishorM/laya) runtime by Convai Innovations
   and links [MLX](https://github.com/ml-explore/mlx) (MIT, through a vendored

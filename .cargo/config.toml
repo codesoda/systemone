@@ -7,8 +7,3 @@
 MLX_RS_METAL_JIT = "1"
 MACOSX_DEPLOYMENT_TARGET = "14.0"
 MLX_RS_METAL_PATH = { value = "target/mlx-metal", relative = true }
-
-# Fetch git dependencies with the system git so its credential helpers apply
-# (laya-rs is a private repository at the time of writing).
-[net]
-git-fetch-with-cli = true
