@@ -16,8 +16,7 @@ workflow.
   selector stripping, verbatim answer/usage passthrough, sanitized error
   envelopes, and TypeSafe `/v1/models` catalogue validation. Includes
   credential-free mock tests and an opt-in, spend-acknowledged live smoke
-  test (`TYPESAFE_API_KEY` + `SYSTEMONE_LIVE_SMOKE=spend-acknowledged`),
-  plus an env-gated direct-TypeSafe leg in the JS SDK smoke script. The
+  test (`TYPESAFE_API_KEY` + `SYSTEMONE_LIVE_SMOKE=spend-acknowledged`). The
   adapter also rejects floats in request state locally (matching the
   openjev adapter and the shared wire contract; the hosted upstream is
   permissive) and passes through upstream FastAPI-style
