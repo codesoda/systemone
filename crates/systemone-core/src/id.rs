@@ -59,6 +59,7 @@ impl<'de> Deserialize<'de> for BackendId {
 pub enum ProviderKind {
     OpenJev,
     Laya,
+    Kev,
     Gliner2,
     Vercel,
     OpenRouter,
@@ -71,6 +72,7 @@ impl ProviderKind {
         match self {
             Self::OpenJev => "openjev",
             Self::Laya => "laya",
+            Self::Kev => "kev",
             Self::Gliner2 => "gliner2",
             Self::Vercel => "vercel",
             Self::OpenRouter => "openrouter",
@@ -82,7 +84,7 @@ impl ProviderKind {
     /// requests to a hosted service.
     #[must_use]
     pub const fn is_local(self) -> bool {
-        matches!(self, Self::OpenJev | Self::Laya | Self::Gliner2)
+        matches!(self, Self::OpenJev | Self::Laya | Self::Kev | Self::Gliner2)
     }
 }
 
