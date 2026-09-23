@@ -267,13 +267,36 @@ jobs:
             target
           key: systemone-gliner2-v1-ubuntu2404-rust195-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.github/workflows/ci-release.yml') }}
 
+      - name: Install Linux native build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential clang libclang-dev cmake pkg-config
+
       - name: Clippy with gliner2
         shell: bash
         run: cargo clippy --locked --workspace --all-targets --features systemone-cli/gliner2 -- -D warnings
 
       - name: Test with gliner2 without model downloads
         shell: bash
-        run: cargo test --locked --workspace --all-targets --features systemone-cli/gliner2
+        run: |
+          set -euo pipefail
+          cargo test --locked --workspace --all-targets --features systemone-cli/gliner2
+          # gliner2-rs links hf-hub; assert no test pulled model weights.
+          test -z "$(find "$HOME/.cache/huggingface" -type f \( -name '*.onnx' -o -name '*.safetensors' \) -print -quit 2>/dev/null || true)"
+          test -z "$(find "$HOME/.cache/openjev" -type f -name '*.gguf' -print -quit 2>/dev/null || true)"
+
+      # The release binaries do not ship GLiNER2, but the README documents
+      # combined builds. Link llama.cpp, Candle and ONNX Runtime into one
+      # executable so a linker conflict between them fails CI, not a user
+      # following the README.
+      - name: Link all local backends into one executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p systemone-cli --features native,laya-cpu,gliner2
+          target/debug/s1 --no-config backends >/dev/null
 
   publish-release:
     name: Publish immutable tag assets

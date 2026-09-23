@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use systemone_core::HostError;
+use systemone_core::{HostError, paths::absolutize};
 
 /// Profiles published for the pinned checkpoint revision.
 pub const PROFILES: [&str; 3] = ["english", "multilingual", "typed-decisions"];
@@ -168,26 +168,6 @@ fn default_cache_dir(home: Option<&Path>) -> Result<PathBuf, HostError> {
     } else {
         home.join(".cache").join(CACHE_DIR_NAME)
     })
-}
-
-fn absolutize(path: &Path, home: Option<&Path>) -> Result<PathBuf, HostError> {
-    if path.is_absolute() {
-        return Ok(path.to_path_buf());
-    }
-    if let Ok(rest) = path.strip_prefix("~") {
-        let home = home.ok_or_else(|| {
-            HostError::validation(format!(
-                "cannot expand {} without a home directory",
-                path.display()
-            ))
-        })?;
-        return Ok(home.join(rest));
-    }
-    std::env::current_dir()
-        .map(|cwd| cwd.join(path))
-        .map_err(|error| {
-            HostError::validation(format!("cannot resolve {}: {error}", path.display()))
-        })
 }
 
 #[cfg(test)]

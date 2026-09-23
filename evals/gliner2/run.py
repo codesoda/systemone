@@ -68,15 +68,28 @@ def run_s1(s1: Path, config_dir: Path, lines: list[str], extra: list[str]) -> li
         cwd=config_dir,
         check=False,
     )
-    if proc.returncode != 0:
+    # Parse stdout before checking the exit code: when rows fail, `s1 run`
+    # writes one JSON error row per failure and exits 1, so the per-row
+    # diagnosis lives in stdout and must not be discarded.
+    rows = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            sys.stderr.write(f"unparseable output line: {line}\n")
+    errors = [row for row in rows if "error" in row]
+    for row in errors:
+        sys.stderr.write(
+            f"row {row.get('line')} failed: {json.dumps(row['error'], ensure_ascii=False)}\n"
+        )
+    if proc.returncode != 0 or errors:
         sys.stderr.write(proc.stderr)
         raise SystemExit(f"s1 run failed with exit code {proc.returncode}")
-    rows = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
     if len(rows) != len(lines):
         raise SystemExit(f"expected {len(lines)} rows, got {len(rows)}")
-    for row in rows:
-        if "error" in row:
-            raise SystemExit(f"row {row.get('line')} failed: {row['error']}")
     return rows
 
 

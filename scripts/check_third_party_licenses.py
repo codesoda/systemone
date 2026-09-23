@@ -114,7 +114,11 @@ def check_rust_notice(metadata, generator):
         stripped = line.strip()
         if stripped.startswith("RUSTUP_TOOLCHAIN:"):
             workflow_toolchains.append(stripped.partition(":")[2].strip().strip("\"'"))
-    if workflow_toolchains != [generator.RUST_RELEASE]:
+    # Every job in the workflow must pin the same toolchain as the notice
+    # compiler; multiple jobs may each carry the pin.
+    if not workflow_toolchains or any(
+        toolchain != generator.RUST_RELEASE for toolchain in workflow_toolchains
+    ):
         fail("release workflow RUSTUP_TOOLCHAIN does not match the Rust notice compiler")
 
 

@@ -33,6 +33,10 @@ workflow.
   derived ordinal classification that did not work as a grader. One binary
   can link llama.cpp, MLX/Candle and ONNX Runtime together (verified on
   Apple Silicon).
+  With `verify_sha256` on (the default), a bundle loads only when its
+  manifest is a validated, release-ready v1 manifest (at most 8 MiB) for a
+  model and revision that gliner2-rs pins. Noul labels that contain a
+  reserved GLiNER2 prompt marker are rejected when the config loads.
 - Commands: `serve`, `run` (single request or `--jsonl` batch through one model
   load), `call`, `decide`, `noul`, `score`, `backends`, `models`,
   `config check|show`, `openjev models pull|path`, `openjev probe`.
