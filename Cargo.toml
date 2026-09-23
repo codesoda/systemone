@@ -5,6 +5,7 @@ members = [
     "crates/systemone-openjev",
     "crates/systemone-remote",
     "crates/systemone-laya",
+    "crates/systemone-kev",
     "crates/systemone-gliner2",
     "crates/systemone-http",
     "crates/systemone-cli",
@@ -24,6 +25,7 @@ systemone-config = { path = "crates/systemone-config" }
 systemone-openjev = { path = "crates/systemone-openjev" }
 systemone-remote = { path = "crates/systemone-remote" }
 systemone-laya = { path = "crates/systemone-laya" }
+systemone-kev = { path = "crates/systemone-kev" }
 systemone-gliner2 = { path = "crates/systemone-gliner2" }
 systemone-http = { path = "crates/systemone-http" }
 
@@ -32,6 +34,9 @@ systemone-http = { path = "crates/systemone-http" }
 openjev-core = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02" }
 openjev-llama = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02", default-features = false }
 laya-core = { git = "https://github.com/codesoda/laya-rs.git", rev = "23fff422666fd5039998fd8a55ca57f7e40d224b", default-features = false }
+# PRE-RELEASE: kev-rs is not published yet; this path dependency must become a
+# pinned Git revision (like the pins above) before any release build.
+kev-core = { path = "../kev-rs/crates/kev-core", default-features = false }
 # gliner2-rs rev is the v0.2.0 release tag commit.
 gliner2-rs = { git = "https://github.com/codesoda/gliner2-rs.git", rev = "1bcf40e80c114ceb707d172b3efd28b577121b39" }
 
