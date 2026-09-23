@@ -17,10 +17,23 @@ workflow.
   envelopes, and TypeSafe `/v1/models` catalogue validation. Includes
   credential-free mock tests and an opt-in, spend-acknowledged live smoke
   test (`TYPESAFE_API_KEY` + `SYSTEMONE_LIVE_SMOKE=spend-acknowledged`). The
-  adapter also rejects floats in request state locally (matching the
-  openjev adapter and the shared wire contract; the hosted upstream is
-  permissive) and passes through upstream FastAPI-style
-  `{"detail": …}` errors with their status and a sanitized message.
+  adapter forwards request state unchanged, floats included, because the
+  hosted API accepts them and OpenJev's float rejection is an adapter
+  limitation rather than a SystemOne rule; it passes through upstream
+  FastAPI-style `{"detail": …}` errors with their status and a sanitized
+  message, keeps a reported `error_type` even when the envelope message is
+  not a string, and reports itself unavailable in `s1 backends` when the
+  configured API-key environment variable is unset or empty. Availability is
+  credential-scoped only; the API is never probed, because a health request
+  would be billed.
+- Strict Jev response parsing in `systemone-http::wire` for hosted backends.
+  Unknown top-level and answer fields are ignored upstream extensions, which
+  includes a `confidence` on a `noul` answer, because the neutral answer has
+  no such field. Score `legend` and `probabilities` keys must be contiguous
+  zero-based decimal indexes, so a sparse or one-based scale is refused
+  instead of silently renumbered onto the positional vectors. An upstream
+  `id` longer than 256 bytes is dropped instead of rejected, so an
+  already-billed response body still reaches the caller.
 - Rust workspace with `systemone-core`, `systemone-config`, `systemone-openjev`,
   `systemone-http` and `systemone-cli` (binary `s1`).
 - Neutral `DecisionHost` trait (`capabilities`, `evaluate`, `shutdown`) that
@@ -64,7 +77,11 @@ workflow.
   Rust 1.95.0 library notice, and the MPL-2.0 `colored`/`option-ext` source
   archives checked against `Cargo.lock`.
 - aislop quality gate (`failBelow: 95`).
-- TypeSafe JS SDK compatibility smoke under `compat/sdk-js/`.
+- TypeSafe JS SDK compatibility smoke under `compat/sdk-js/`, with a
+  `SYSTEMONE_SMOKE_BACKEND=typesafe` leg that runs against the hosted API and
+  bills the account. The shared assertions stay strict for every local
+  backend; four checks relax for `typesafe` alone (catalogue size, resolved
+  model identity, choice label order, real output tokens).
 - README on the Best-README-Template layout with the staged VHS walkthrough
   (`demo/`, `docs/demo.md`), plus `CONTRIBUTING.md`, `SECURITY.md`,
   `SUPPORT.md` and `CODE_OF_CONDUCT.md`. Future work lives in GitHub issues;
