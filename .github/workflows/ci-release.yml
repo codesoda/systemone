@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+# One toolchain for every job. scripts/check_third_party_licenses.py requires
+# exactly one RUSTUP_TOOLCHAIN line that matches the Rust notice compiler.
+env:
+  RUSTUP_TOOLCHAIN: 1.95.0
+
 jobs:
   plan:
     name: Select build targets
@@ -45,7 +50,6 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_TERM_COLOR: always
-      RUSTUP_TOOLCHAIN: 1.95.0
       CARGO_BUILD_JOBS: "2"
       CMAKE_BUILD_PARALLEL_LEVEL: "2"
     steps:
@@ -240,7 +244,6 @@ jobs:
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_TERM_COLOR: always
-      RUSTUP_TOOLCHAIN: 1.95.0
     steps:
       - name: Check out the event commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
