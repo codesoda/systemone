@@ -15,6 +15,7 @@ pub mod error;
 pub mod extension;
 pub mod host;
 pub mod id;
+pub mod paths;
 pub mod request;
 pub mod response;
 

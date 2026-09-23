@@ -4,7 +4,8 @@
 use std::{fs, io::Read, path::Path, time::Instant};
 
 use gliner2_rs::{
-    BundleManifest, ClassificationPipeline, ClassificationScores, OptimizationLevel, RuntimeOptions,
+    BundleManifest, BundleStatus, ClassificationPipeline, ClassificationScores, OptimizationLevel,
+    RuntimeOptions, bundle::BOUNDARY_MODEL_PINS,
 };
 use sha2::{Digest, Sha256};
 use systemone_core::{
@@ -28,6 +29,9 @@ const VERIFIED_FILES: [&str; 4] = [
     "classifier.onnx",
 ];
 const MANIFEST: &str = "export_manifest.json";
+/// Upstream `read_manifest` caps manifests at 8 MiB; mirror that bound so a
+/// corrupt or crafted manifest cannot balloon memory.
+const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 
 pub struct Gliner2Host {
     pipeline: Option<ClassificationPipeline>,
@@ -77,7 +81,15 @@ impl Gliner2Host {
         model_aliases.extend(aliases.iter().cloned());
         let source = identity.as_ref().map_or_else(
             || "unverified directory".to_owned(),
-            |identity| format!("{} @ {}", identity.hf_model, &identity.hf_revision[..12]),
+            |identity| {
+                // Verification pins the revision to a 40-char hex commit, but
+                // never byte-slice a string that started as external input.
+                let revision = identity
+                    .hf_revision
+                    .get(..12)
+                    .unwrap_or(&identity.hf_revision);
+                format!("{} @ {revision}", identity.hf_model)
+            },
         );
         let capabilities = Capabilities {
             kind: ProviderKind::Gliner2,
@@ -109,6 +121,7 @@ impl Gliner2Host {
     }
 }
 
+#[derive(Debug)]
 struct BundleIdentity {
     hf_model: String,
     hf_revision: String,
@@ -116,26 +129,80 @@ struct BundleIdentity {
 
 /// Check the four classification files against the bundle's manifest. The
 /// manifest is the same one `validate_bundle` reads; this checks a subset of
-/// its files and makes no claim about the rest of the bundle.
+/// its files plus the bundle's pinned identity (model, revision, validated
+/// release status) and makes no claim about the rest of the bundle. Unlike
+/// upstream `read_manifest` it does not reject duplicate JSON keys; the
+/// manifest lives beside the files it describes, so this is a provenance and
+/// corruption check, not an authentication boundary.
 fn verify_against_manifest(
     model_dir: &Path,
     expected_bundle: &str,
 ) -> Result<BundleIdentity, HostError> {
     let manifest_path = model_dir.join(MANIFEST);
-    let bytes = fs::read(&manifest_path).map_err(|error| {
+    let file = fs::File::open(&manifest_path).map_err(|error| {
         HostError::unavailable(format!(
             "cannot read {} ({error}); set settings.verify_sha256 = false to load an unverified directory",
             manifest_path.display()
         ))
     })?;
+    let mut bytes = Vec::new();
+    file.take(MAX_MANIFEST_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            HostError::unavailable(format!("cannot read {}: {error}", manifest_path.display()))
+        })?;
+    if bytes.is_empty() {
+        return Err(HostError::unavailable(format!(
+            "{} is empty",
+            manifest_path.display()
+        )));
+    }
+    if bytes.len() as u64 > MAX_MANIFEST_BYTES {
+        return Err(HostError::unavailable(format!(
+            "{} exceeds the {MAX_MANIFEST_BYTES} byte manifest limit",
+            manifest_path.display()
+        )));
+    }
     let manifest: BundleManifest = serde_json::from_slice(&bytes).map_err(|error| {
         HostError::unavailable(format!("malformed {}: {error}", manifest_path.display()))
     })?;
+    if manifest.manifest_version != 1 {
+        return Err(HostError::unavailable(format!(
+            "{} has manifest_version {}, expected 1",
+            manifest_path.display(),
+            manifest.manifest_version
+        )));
+    }
     if manifest.architecture != "boundary" {
         return Err(HostError::unavailable(format!(
             "{} describes architecture {:?}, expected boundary",
             manifest_path.display(),
             manifest.architecture
+        )));
+    }
+    if manifest.status != BundleStatus::Validated || !manifest.release_ready {
+        return Err(HostError::unavailable(format!(
+            "{} is not a validated release bundle; set settings.verify_sha256 = false to load it unverified",
+            model_dir.display()
+        )));
+    }
+    let pin = BOUNDARY_MODEL_PINS
+        .iter()
+        .find(|pin| pin.hf_model == manifest.hf_model)
+        .ok_or_else(|| {
+            HostError::unavailable(format!(
+                "{} names unpinned model {:?}; set settings.verify_sha256 = false to load it unverified",
+                manifest_path.display(),
+                manifest.hf_model
+            ))
+        })?;
+    if manifest.hf_revision != pin.hf_revision {
+        return Err(HostError::unavailable(format!(
+            "{} records revision {:?} for {}, expected the pinned {}",
+            manifest_path.display(),
+            manifest.hf_revision,
+            pin.hf_model,
+            pin.hf_revision
         )));
     }
     let bundle_from_model = manifest.hf_model.rsplit('/').next().unwrap_or_default();
@@ -241,3 +308,7 @@ impl DecisionHost for Gliner2Host {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "host_tests.rs"]
+mod tests;

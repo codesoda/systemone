@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use systemone_core::HostError;
+use systemone_core::{HostError, paths::absolutize};
 
 /// Checkpoints verified against the pinned upstream in gliner2-rs.
 pub const PROFILES: [&str; 3] = ["small", "base", "multi"];
@@ -20,6 +20,11 @@ pub const DEFAULT_INTRA_THREADS: usize = 4;
 /// Labels that stand for `false` and `true` in a Noul question. Evaluated on
 /// the held-out set in `docs/gliner2-evaluation.md`; wording changes answers.
 pub const DEFAULT_NOUL_LABELS: [&str; 2] = ["no", "yes"];
+/// Prompt markers reserved by gliner2-rs (`scores::RESERVED_MARKERS`). A
+/// label containing one fails upstream request validation, so a config that
+/// uses one must fail here at resolution — not per request with an HTTP 422
+/// that blames the caller.
+pub const RESERVED_LABEL_MARKERS: [&str; 6] = ["[P]", "[L]", "[E]", "[C]", "[R]", "[DESCRIPTION]"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -150,6 +155,16 @@ pub fn resolve(
             "settings.noul_labels must be two distinct non-empty labels".to_owned(),
         ));
     }
+    for label in &noul_labels {
+        if let Some(marker) = RESERVED_LABEL_MARKERS
+            .iter()
+            .find(|marker| label.contains(*marker))
+        {
+            return Err(HostError::validation(format!(
+                "settings.noul_labels label {label:?} contains the reserved prompt marker {marker}"
+            )));
+        }
+    }
     let model_dir = settings
         .model_dir
         .as_ref()
@@ -165,24 +180,6 @@ pub fn resolve(
         noul_labels,
         model_id,
     })
-}
-
-fn absolutize(path: &Path, home: Option<&Path>) -> Result<PathBuf, HostError> {
-    if path.is_absolute() {
-        return Ok(path.to_path_buf());
-    }
-    if let Ok(stripped) = path.strip_prefix("~") {
-        let home = home.ok_or_else(|| {
-            HostError::validation(format!(
-                "settings path {} uses `~` but no home directory is available",
-                path.display()
-            ))
-        })?;
-        return Ok(home.join(stripped));
-    }
-    std::env::current_dir()
-        .map(|cwd| cwd.join(path))
-        .map_err(|error| HostError::validation(format!("cannot resolve relative path: {error}")))
 }
 
 #[cfg(test)]
@@ -238,6 +235,31 @@ mod tests {
             };
             assert!(resolve(&bad, None, None).is_err());
         }
+    }
+
+    #[test]
+    fn rejects_noul_labels_with_reserved_prompt_markers() {
+        for labels in [["no", "[L]yes"], ["[DESCRIPTION]", "yes"]] {
+            let bad = Gliner2Settings {
+                noul_labels: Some(labels.map(str::to_owned)),
+                ..Gliner2Settings::default()
+            };
+            let error = resolve(&bad, None, None).unwrap_err();
+            assert!(matches!(error, HostError::Validation(_)), "{error}");
+            assert!(
+                error.to_string().contains("reserved prompt marker"),
+                "{error}"
+            );
+        }
+    }
+
+    #[cfg(feature = "gliner2")]
+    #[test]
+    fn reserved_markers_match_upstream() {
+        assert_eq!(
+            RESERVED_LABEL_MARKERS.as_slice(),
+            gliner2_rs::scores::RESERVED_MARKERS
+        );
     }
 
     #[test]
