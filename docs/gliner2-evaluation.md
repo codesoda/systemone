@@ -14,7 +14,8 @@ and it says nothing about speed.
   `s1 run --jsonl` against a configured `kind = "gliner2"` instance and
   scores the wire responses. Nothing in the runner knows where models live.
 - Build: `s1 0.1.0` with `--features gliner2`, gliner2-rs
-  `1492d6b6d9b688f11751094eb6c479e5fbb3883e`, ONNX Runtime 1.28.0 CPU, the
+  `1492d6b6d9b688f11751094eb6c479e5fbb3883e` (library source identical to
+  the `v0.2.0` tag now pinned; only Cargo metadata differs), ONNX Runtime 1.28.0 CPU, the
   three bundles at `codesoda/gliner2-onnx` revision
   `27310cd26099a387b9936a1e13b03d6a0700baf2`, default settings
   (4 intra-op threads, `verify_sha256 = true`), Apple M-series laptop.

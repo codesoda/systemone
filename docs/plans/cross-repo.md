@@ -26,7 +26,7 @@ Inspected source snapshots (these are observations, not a dependency lockfile):
 | --- | --- | --- |
 | openjev-rs | `8452ef0e5890497deb2cec95f16dc8d94d0c0c02` (pinned) | Library-only: `openjev-core` and `openjev-llama`. The former CLI/HTTP server was removed in this revision and reimplemented here |
 | laya-rs | `23fff422666fd5039998fd8a55ca57f7e40d224b` (pinned) | `crates/laya-core`: Rust runtime with MLX (Metal) and Candle (CPU) backends, parity-gated against the frozen Python goldens; Python baseline/assets/goldens retained for that gate |
-| gliner2-rs | `1492d6b6d9b688f11751094eb6c479e5fbb3883e` (pinned) | Rust `gliner2-rs` package, imported as `gliner2_rs`; GLiNER2.5 boundary runtime on direct ORT 1.28 with `ClassificationPipeline`, `score_classification*` (complete ordered distributions) and `RuntimeOptions` (CPU only) |
+| gliner2-rs | `1bcf40e80c114ceb707d172b3efd28b577121b39` (tag `v0.2.0`, pinned) | Rust `gliner2-rs` package, imported as `gliner2_rs`; GLiNER2.5 boundary runtime on direct ORT 1.28 with `ClassificationPipeline`, `score_classification*` (complete ordered distributions) and `RuntimeOptions` (CPU only) |
 
 The GLiNER checkout was locally named `gliners2`; its remote is codesoda/gliner2-rs. Do not mistake a local directory name for a different repository.
 

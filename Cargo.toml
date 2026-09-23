@@ -30,7 +30,8 @@ systemone-http = { path = "crates/systemone-http" }
 openjev-core = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02" }
 openjev-llama = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02", default-features = false }
 laya-core = { git = "https://github.com/codesoda/laya-rs.git", rev = "23fff422666fd5039998fd8a55ca57f7e40d224b", default-features = false }
-gliner2-rs = { git = "https://github.com/codesoda/gliner2-rs.git", rev = "1492d6b6d9b688f11751094eb6c479e5fbb3883e" }
+# gliner2-rs rev is the v0.2.0 release tag commit.
+gliner2-rs = { git = "https://github.com/codesoda/gliner2-rs.git", rev = "1bcf40e80c114ceb707d172b3efd28b577121b39" }
 
 anyhow = "=1.0.104"
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }

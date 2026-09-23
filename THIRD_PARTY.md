@@ -27,13 +27,12 @@ standard-library notice `RUST-COPYRIGHT-library.html`.
   bundle below does not cover them; that is tracked as a release blocker for
   shipping Laya.
 - [codesoda/gliner2-rs](https://github.com/codesoda/gliner2-rs) (`gliner2-rs`),
-  pinned by Git revision in `Cargo.toml` and enabled by the `gliner2`
-  feature. It runs ONNX exports of [GLiNER2](https://github.com/fastino-ai/GLiNER2)
+  Apache-2.0, pinned to the `v0.2.0` release commit in `Cargo.toml` and
+  enabled by the `gliner2` feature. It runs ONNX exports of [GLiNER2](https://github.com/fastino-ai/GLiNER2)
   by Fastino AI (Apache-2.0) through [ONNX Runtime](https://github.com/microsoft/onnxruntime)
   (MIT) via the [ort](https://github.com/pykeio/ort) crate (MIT OR
   Apache-2.0), which fetches a pinned prebuilt static library at build time.
-  gliner2-rs itself declares no license in its manifest yet; that must be
-  settled before it ships in a binary release. These features are **not in
+  These features are **not in
   the binary releases yet**, so the generated notice bundle below does not
   cover them.
 - SystemOne is not affiliated with or endorsed by SemIf, TheoLeeCJ, TypeSafe
