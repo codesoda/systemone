@@ -12,6 +12,7 @@ use systemone_core::{
     Backend, BackendDescription, BackendId, ExtensionCoverage, HostError, ProviderKind,
 };
 use systemone_gliner2::{Gliner2Backend, Gliner2Settings};
+use systemone_kev::{KevBackend, KevSettings};
 use systemone_laya::{LayaBackend, LayaSettings};
 use systemone_openjev::{OpenJevBackend, OpenJevSettings};
 use systemone_remote::{TypesafeBackend, TypesafeSettings};
@@ -64,6 +65,21 @@ pub fn build(id: &BackendId, config: &BackendConfig) -> Result<Arc<dyn Backend>,
                     HostError::validation(format!("backends.{id}.settings: {error}"))
                 })?;
             let backend = LayaBackend::new(
+                id.clone(),
+                config.model.as_deref(),
+                config.aliases.clone(),
+                &settings,
+                systemone_config::home_directory().as_deref(),
+            )
+            .map_err(|error| prefix(id, error))?;
+            Ok(Arc::new(backend))
+        }
+        ProviderKind::Kev => {
+            let settings: KevSettings = serde_json::from_value(settings_to_json(&config.settings))
+                .map_err(|error| {
+                    HostError::validation(format!("backends.{id}.settings: {error}"))
+                })?;
+            let backend = KevBackend::new(
                 id.clone(),
                 config.model.as_deref(),
                 config.aliases.clone(),
