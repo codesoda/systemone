@@ -66,9 +66,11 @@ cargo clippy -p systemone-cli --all-targets --features metal,laya-metal,gliner2 
 cargo build -p systemone-cli --features metal,laya-metal,gliner2
 ```
 
-CI runs the same checks on Linux for every pull request (with `laya-cpu` and
-`gliner2`). The
-macOS build runs only for release tags.
+CI runs the same checks on Linux for every pull request. The main Linux job
+(`ubuntu-22.04`, with `laya-cpu`) also builds the release binary, so it keeps
+the glibc 2.35 floor. `gliner2` runs in its own `ubuntu-24.04` job because the
+ONNX Runtime library that `ort` downloads needs glibc 2.38. The macOS build
+runs only for release tags.
 
 ### SDK smoke
 

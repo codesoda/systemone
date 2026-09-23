@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          linux='{"runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","expected_arch":"x86_64","package_features":"native","workspace_features":"systemone-cli/native,systemone-cli/laya-cpu,systemone-cli/gliner2"}'
+          linux='{"runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","expected_arch":"x86_64","package_features":"native","workspace_features":"systemone-cli/native,systemone-cli/laya-cpu"}'
           mac='{"runner":"macos-14","target":"aarch64-apple-darwin","expected_arch":"arm64","package_features":"metal","workspace_features":"systemone-cli/metal"}'
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "matrix=[$linux,$mac]" >> "$GITHUB_OUTPUT"
@@ -229,10 +229,53 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+  # The ONNX Runtime static library that ort downloads needs glibc 2.38 and
+  # the GCC 13 libstdc++. The release job stays on ubuntu-22.04 to keep the
+  # glibc 2.35 floor, so the gliner2 feature gets its own job on 24.04.
+  # GLiNER2 is not in release binaries.
+  gliner2-linux:
+    name: gliner2 (x86_64-unknown-linux-gnu)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TERM_COLOR: always
+      RUSTUP_TOOLCHAIN: 1.95.0
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.95.0 components
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup set profile minimal
+          rustup toolchain install 1.95.0 --no-self-update --component clippy
+          rustc --version
+
+      - name: Cache pinned Cargo dependencies and build outputs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: systemone-gliner2-v1-ubuntu2404-rust195-${{ hashFiles('Cargo.lock', 'Cargo.toml', '.github/workflows/ci-release.yml') }}
+
+      - name: Clippy with gliner2
+        shell: bash
+        run: cargo clippy --locked --workspace --all-targets --features systemone-cli/gliner2 -- -D warnings
+
+      - name: Test with gliner2 without model downloads
+        shell: bash
+        run: cargo test --locked --workspace --all-targets --features systemone-cli/gliner2
+
   publish-release:
     name: Publish immutable tag assets
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: build-test-package
+    needs: [build-test-package, gliner2-linux]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     permissions:
