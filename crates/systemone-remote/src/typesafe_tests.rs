@@ -913,6 +913,53 @@ fn answer_or_label_set_mismatch_is_an_invalid_upstream_body() {
     }
 }
 
+/// A request with one score question. The rubric declares three levels.
+fn score_request() -> DecisionRequest {
+    let body = br#"{"backend":"direct","state":{"topic":"migration"},"questions":{"urgency":{"type":"score","criteria":["low","medium","high"]}}}"#;
+    wire::parse_request(body)
+        .expect("parse score request")
+        .request
+}
+
+fn evaluate_score_reply(body: &str) -> Result<DecisionResponse, HostError> {
+    let server = MockServer::start(Script::Reply(200, body.to_owned()));
+    let mut host = host(&server.base());
+    evaluate_with(&mut host, &score_request())
+}
+
+/// A score answer is positional. The adapter reads the levels in index
+/// order whatever order the upstream wrote them in, and it refuses a body
+/// that answers another number of levels than the request declared. A
+/// short rubric is not rescaled to fit.
+#[test]
+fn score_levels_follow_the_declared_scale() {
+    let shuffled = r#"{"model":"jev-latest","answers":{"urgency":{"type":"score","score":1,"legend":{"2":"high","0":"low","1":"medium"},"probabilities":{"1":0.5,"2":0.3,"0":0.2},"confidence":0.4}}}"#;
+    let response = evaluate_score_reply(shuffled).expect("upstream success");
+    let systemone_core::Answer::Score(score) = &response.answers[0].1 else {
+        panic!("expected a score answer");
+    };
+    assert_eq!(score.legend, vec!["low", "medium", "high"]);
+    assert_eq!(score.probabilities, vec![0.2, 0.5, 0.3]);
+
+    for (case, body) in [
+        (
+            "fewer levels",
+            r#"{"model":"jev-latest","answers":{"urgency":{"type":"score","score":1,"legend":{"0":"low","1":"high"},"probabilities":{"0":0.5,"1":0.5}}}}"#,
+        ),
+        (
+            "more levels",
+            r#"{"model":"jev-latest","answers":{"urgency":{"type":"score","score":1,"legend":{"0":"a","1":"b","2":"c","3":"d"},"probabilities":{"0":0.25,"1":0.25,"2":0.25,"3":0.25}}}}"#,
+        ),
+    ] {
+        let error = evaluate_score_reply(body).expect_err(case);
+        let message = expect_invalid_upstream_body(&error);
+        assert!(
+            message.contains("the request declared 3"),
+            "{case}: {message}"
+        );
+    }
+}
+
 /// A pinned instance: the concrete version is the served model and the
 /// upstream alias is accepted as a request selector.
 fn pinned_host(base: &Url) -> TypesafeHost {

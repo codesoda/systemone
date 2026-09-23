@@ -750,12 +750,16 @@ fn parse_level_index(key: &str, path: &str) -> Result<u64, WireError> {
 /// question asked for. A missing, extra, renamed or retyped entry is an
 /// invalid upstream body: the caller refuses it and never repairs it.
 ///
-/// Score answers are positional already, so they need no reordering; their
-/// level count is checked by [`DecisionResponse::validate`].
+/// Score answers are positional already, so they need no reordering, but
+/// they must cover exactly the levels the request declared. The level
+/// descriptions themselves pass through as the upstream reported them.
+///
+/// The function takes the response by value and returns the aligned one, so
+/// a refused body cannot leave a half-moved response behind.
 pub fn align_to_request(
-    response: &mut DecisionResponse,
+    mut response: DecisionResponse,
     request: &DecisionRequest,
-) -> Result<(), WireError> {
+) -> Result<DecisionResponse, WireError> {
     let mut supplied = take_unique(
         std::mem::take(&mut response.answers),
         "response.answers",
@@ -777,7 +781,7 @@ pub fn align_to_request(
         )));
     }
     response.answers = ordered;
-    Ok(())
+    Ok(response)
 }
 
 fn align_answer(id: &str, question: &Question, answer: &mut Answer) -> Result<(), WireError> {
@@ -806,7 +810,21 @@ fn align_answer(id: &str, question: &Question, answer: &mut Answer) -> Result<()
             answer.probabilities = ordered;
             Ok(())
         }
-        (Question::Noul(_), Answer::Noul(_)) | (Question::Score(_), Answer::Score(_)) => Ok(()),
+        (Question::Score(question), Answer::Score(answer)) => {
+            let declared = question.levels.len();
+            for (field, covered) in [
+                ("legend", answer.legend.len()),
+                ("probabilities", answer.probabilities.len()),
+            ] {
+                if covered != declared {
+                    return Err(WireError::validation(format!(
+                        "{path}.{field} covers {covered} levels, but the request declared {declared}"
+                    )));
+                }
+            }
+            Ok(())
+        }
+        (Question::Noul(_), Answer::Noul(_)) => Ok(()),
         (question, answer) => Err(WireError::validation(format!(
             "{path}.type is {}, but the request asked {}",
             answer_primitive(answer),
@@ -1211,8 +1229,7 @@ mod tests {
           "pick":{"type":"choice","choice":"beta","probabilities":{"beta":0.75,"alpha":0.25}}
         }}"#;
 
-        let mut response = parse_response(upstream).unwrap();
-        align_to_request(&mut response, &request).unwrap();
+        let response = align_to_request(parse_response(upstream).unwrap(), &request).unwrap();
         let answered: Vec<&str> = response.answers.iter().map(|(id, _)| id.as_str()).collect();
         assert_eq!(answered, ["pick", "worth"]);
         let Answer::Choice(choice) = &response.answers[0].1 else {
@@ -1233,13 +1250,57 @@ mod tests {
             // The wrong primitive for a declared question.
             br#"{"model":"m","answers":{"pick":{"type":"noul","noul":0.5},"worth":{"type":"noul","noul":0.1}}}"#,
         ] {
-            let mut response = parse_response(body).unwrap();
-            let error = align_to_request(&mut response, &request).unwrap_err();
+            let error =
+                align_to_request(parse_response(body).unwrap(), &request).unwrap_err();
             assert_eq!(
                 error.error_type,
                 "validation_error",
                 "{}",
                 String::from_utf8_lossy(body)
+            );
+        }
+    }
+
+    /// A score answer is positional, so it must cover exactly the levels
+    /// the request declared. A shorter or longer rubric answers another
+    /// question; it is refused, not accepted with the upstream's scale.
+    #[test]
+    fn alignment_refuses_a_score_answer_with_another_level_count() {
+        let request = parse_request(
+            br#"{"state":"s","questions":{
+              "urgency":{"type":"score","criteria":["low","medium","high"]}
+            }}"#,
+        )
+        .unwrap()
+        .request;
+
+        let matching = br#"{"model":"m","answers":{"urgency":{"type":"score","score":1,
+          "legend":{"0":"low","1":"medium","2":"high"},
+          "probabilities":{"0":0.2,"1":0.5,"2":0.3}}}}"#;
+        let response = align_to_request(parse_response(matching).unwrap(), &request).unwrap();
+        let Answer::Score(score) = &response.answers[0].1 else {
+            panic!("expected a score answer");
+        };
+        assert_eq!(score.probabilities.len(), 3);
+
+        for body in [
+            // Fewer levels than the request declared.
+            br#"{"model":"m","answers":{"urgency":{"type":"score","score":1,"legend":{"0":"low","1":"high"},"probabilities":{"0":0.5,"1":0.5}}}}"#.as_slice(),
+            // More levels than the request declared.
+            br#"{"model":"m","answers":{"urgency":{"type":"score","score":1,"legend":{"0":"a","1":"b","2":"c","3":"d"},"probabilities":{"0":0.25,"1":0.25,"2":0.25,"3":0.25}}}}"#,
+        ] {
+            let error =
+                align_to_request(parse_response(body).unwrap(), &request).unwrap_err();
+            assert_eq!(
+                error.error_type,
+                "validation_error",
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+            assert!(
+                error.message.contains("the request declared 3"),
+                "{}",
+                error.message
             );
         }
     }

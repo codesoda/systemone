@@ -474,13 +474,13 @@ impl DecisionHost for TypesafeHost {
         if !(200..300).contains(&reply.status) {
             return Err(self.upstream_error(&reply));
         }
-        let mut response = wire::parse_response(&reply.body)
+        let response = wire::parse_response(&reply.body)
             .map_err(|error| self.invalid_body(reply.status, &error.message))?;
         // The upstream owns its key order; SystemOne owns the one its
         // callers see. This moves entries into request order and refuses a
-        // body that answers other questions or other labels. Values are
-        // never touched.
-        wire::align_to_request(&mut response, request)
+        // body that answers other questions, other labels or another score
+        // scale. Values are never touched.
+        let response = wire::align_to_request(response, request)
             .map_err(|error| self.invalid_body(reply.status, &error.message))?;
         response
             .validate(distribution_tolerance(&response))
