@@ -19,12 +19,15 @@ const expectations = {
   typesafe: { outputTokens: "counted", floatState: "accepted" },
 };
 const backendKind = process.env.SYSTEMONE_SMOKE_BACKEND ?? "openjev";
-const expected = expectations[backendKind];
-if (!expected) {
+// `Object.hasOwn` and not a truthiness test: a plain object inherits
+// `constructor`, `toString` and more, so a lookup alone would accept those
+// names as backends and then read undefined expectations from them.
+if (!Object.hasOwn(expectations, backendKind)) {
   throw new Error(
     `SYSTEMONE_SMOKE_BACKEND must be one of ${Object.keys(expectations).join(", ")}, got ${backendKind}`,
   );
 }
+const expected = expectations[backendKind];
 const client = new TypeSafeClient({
   apiKey,
   baseURL,
