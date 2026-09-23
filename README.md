@@ -348,7 +348,8 @@ Response shape (**illustrative values**, not a promised prediction):
 
 `jev-latest` is an accepted alias for the selected backend's model, not a call
 to hosted Jev; the response reports the actual model. `output_tokens` is zero
-because nothing is generated. Routing evidence travels in headers, so the JSON
+for the local backends, because nothing is generated; a hosted backend reports
+the count its API returned. Routing evidence travels in headers, so the JSON
 stays SDK-compatible: `x-systemone-backend`, `x-systemone-model`,
 `x-systemone-request-id`, `x-systemone-elapsed-ms`, `x-systemone-execution`,
 `x-systemone-fallback`, `x-systemone-probability-status` and
@@ -522,17 +523,33 @@ changes the destination:
 [backends.cloud-typesafe]
 kind = "typesafe"
 enabled = true
-model = "jev-latest"
+model = "jev-1.13.0"
+aliases = ["jev-latest"]
 
 [backends.cloud-typesafe.settings]
 api_key_env = "TYPESAFE_API_KEY"
 ```
 
 The key is read from that environment variable when the server starts; it
-never lives in configuration. Answers, usage counters, model identity and
-label order arrive as the API reported them. SystemOne validates the body
-and refuses a corrupt one; it never repairs or renormalizes it. One request
-is one upstream call: no retries and no fallback.
+never lives in configuration. Answers, usage counters and model identity
+arrive as the API reported them. SystemOne validates the body and refuses a
+corrupt one; it never repairs or renormalizes it. One request is one upstream
+call: no retries and no fallback.
+
+**Model identity.** Pin a concrete version, as above, for a stable identity:
+SystemOne resolves the requested `jev-latest` to the configured
+`jev-1.13.0`, sends that upstream, and the answer names the same model as the
+single `/v1/models` card. Configure an upstream alias as the instance `model`
+instead and the answer carries whatever concrete identity the API picked for
+that alias, because model identity is passed through verbatim. The upstream
+catalogue lists aliases only and does not reveal the version behind them.
+
+**Key order.** The `answers` object follows the question order of the request
+and each Choice `probabilities` map follows the order the options were
+declared in, for hosted answers exactly as for local ones. That is key order
+only; no probability, label or answer value is altered. If the upstream answer
+carries a different label set than the request declared, or misses or adds an
+answer, the body is invalid and the request fails. SystemOne never repairs it.
 
 ## Models
 

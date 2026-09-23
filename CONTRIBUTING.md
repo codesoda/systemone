@@ -86,21 +86,60 @@ SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=gliner2 node sm
 SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=typesafe node smoke.mjs # typesafe
 ```
 
-The `typesafe` run calls the hosted TypeSafe API. It bills the account behind
-the `TYPESAFE_API_KEY` variable that the server reads at startup, so run it
-only when you change the TypeSafe adapter, and keep the key out of the
-repository. The shared assertions stay strict for the local backends. Four
-checks relax for `typesafe` alone, because the adapter forwards what the hosted
-API returns: the catalogue may list more than one model, the answer names the
-model the API reports and not necessarily the requested alias, choice
-probabilities keep the upstream label order, and the usage counters may report
-nonzero output tokens. For the last two the smoke pins the shape, not the
-value: SystemOne forwards both and promises nothing about either, so a check on
-the value would gate SystemOne on a provider promise. Score probabilities, the
-legend, the unknown-model 404 and every numeric bound stay identical for all
-backends. The float-state leg follows the
-adapter: OpenJev rejects float state values with a 422, and Laya, GLiNER2 and
-TypeSafe accept them.
+Every backend runs the same assertions. The only per-backend part is the
+`expectations` table at the top of `smoke.mjs`, which records two genuine
+differences: whether the backend reports zero output tokens (OpenJev, Laya and
+GLiNER2 generate nothing) or a positive count (TypeSafe generates), and whether
+float JSON state values are rejected with a 422 (OpenJev) or accepted (Laya,
+GLiNER2, TypeSafe). Everything else — one model card, `model` equal to that
+card's name, the declared key order of every distribution, the score legend,
+the numeric bounds, positive input tokens and the unknown-model 404 — is
+shared and unconditional.
+
+The `typesafe` leg needs a server that points at the hosted API. Write a
+throw-away config in a scratch directory and start `s1` there, because `s1`
+reads `./systemone.config.toml` from the working directory:
+
+```toml
+# /tmp/s1-typesafe/systemone.config.toml
+default_backend = "hosted"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[backends.hosted]
+kind = "typesafe"
+enabled = true
+model = "jev-1.13.0"
+aliases = ["jev-latest"]
+
+[backends.hosted.settings]
+api_key_env = "TYPESAFE_API_KEY"
+
+# The built-in defaults enable a local OpenJev instance, and `serve` refuses
+# to start when an enabled backend cannot load. Partial overrides merge, so
+# this one line is enough to leave it out of this run.
+[backends.local]
+enabled = false
+```
+
+```sh
+cd /tmp/s1-typesafe && TYPESAFE_API_KEY=<key> s1 serve
+```
+
+Pin a concrete model version, as above. The upstream catalogue lists aliases
+only (`jev-latest`, `jev-preview`) and does not reveal the version behind them,
+so a request for `jev-latest` comes back as, for example, `jev-1.13.0`.
+SystemOne passes upstream model identity through verbatim, so configuring the
+alias as the instance `model` would make the answer name a model the catalogue
+does not list. With the concrete version configured and the alias accepted
+through `aliases`, SystemOne resolves `jev-latest` to `jev-1.13.0`, sends that
+upstream, and the answer matches the single `/v1/models` card.
+
+The key never belongs in the repository, in a committed config or in a log.
+The run calls the hosted API and bills the account behind `TYPESAFE_API_KEY`,
+so run it only when you change the TypeSafe adapter.
 
 The GLiNER2 adapter also has a held-out product evaluation
 (`evals/gliner2/run.py`, results in `docs/gliner2-evaluation.md`). Rerun it
