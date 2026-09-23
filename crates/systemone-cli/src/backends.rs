@@ -14,6 +14,7 @@ use systemone_core::{
 use systemone_gliner2::{Gliner2Backend, Gliner2Settings};
 use systemone_laya::{LayaBackend, LayaSettings};
 use systemone_openjev::{OpenJevBackend, OpenJevSettings};
+use systemone_remote::{TypesafeBackend, TypesafeSettings};
 
 /// A configured instance: either a constructed backend or the reason it
 /// could not be constructed.
@@ -83,6 +84,20 @@ pub fn build(id: &BackendId, config: &BackendConfig) -> Result<Arc<dyn Backend>,
                 config.aliases.clone(),
                 &settings,
                 systemone_config::home_directory().as_deref(),
+            )
+            .map_err(|error| prefix(id, error))?;
+            Ok(Arc::new(backend))
+        }
+        ProviderKind::Typesafe => {
+            let settings: TypesafeSettings =
+                serde_json::from_value(settings_to_json(&config.settings)).map_err(|error| {
+                    HostError::validation(format!("backends.{id}.settings: {error}"))
+                })?;
+            let backend = TypesafeBackend::new(
+                id.clone(),
+                config.model.as_deref(),
+                config.aliases.clone(),
+                &settings,
             )
             .map_err(|error| prefix(id, error))?;
             Ok(Arc::new(backend))

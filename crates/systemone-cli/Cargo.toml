@@ -36,6 +36,7 @@ systemone-http.workspace = true
 systemone-gliner2.workspace = true
 systemone-laya.workspace = true
 systemone-openjev.workspace = true
+systemone-remote.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

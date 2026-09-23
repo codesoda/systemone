@@ -62,6 +62,7 @@ pub enum ProviderKind {
     Gliner2,
     Vercel,
     OpenRouter,
+    Typesafe,
 }
 
 impl ProviderKind {
@@ -73,6 +74,7 @@ impl ProviderKind {
             Self::Gliner2 => "gliner2",
             Self::Vercel => "vercel",
             Self::OpenRouter => "openrouter",
+            Self::Typesafe => "typesafe",
         }
     }
 

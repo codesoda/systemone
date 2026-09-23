@@ -17,10 +17,11 @@ configuration, not in code.
 · [Request a feature](https://github.com/codesoda/systemone/issues/new)
 
 > **Status:** the `s1` binary, layered configuration, HTTP service and the
-> OpenJev, Laya and GLiNER2 backends are implemented and were exercised
-> against real models, including the official TypeSafe JS SDK. Binary
-> releases are built by CI on `v*` tags and currently ship OpenJev only; Laya
-> and GLiNER2 are source builds. Vercel and OpenRouter backends are planned;
+> OpenJev, Laya, GLiNER2 and TypeSafe backends are implemented. The local
+> backends were exercised against real models and TypeSafe against its live
+> hosted API, including the official TypeSafe JS SDK. Binary releases are
+> built by CI on `v*` tags and currently ship OpenJev and TypeSafe; Laya and
+> GLiNER2 are source builds. Vercel and OpenRouter backends are planned;
 > enabling one today is a clear configuration error, not a silent fallback.
 > Only the Apple Silicon build has been run with real weights.
 
@@ -87,13 +88,15 @@ coverage.
 | --- | --- | --- |
 | `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | **Available.** Prompt/token parity and explicit serial fallback preserved |
 | `laya` | Bidirectional encoder with trained decision heads through [laya-core](https://github.com/codesoda/laya-rs) | **Available** with `--features laya-cpu` (Candle) or `laya-metal` (MLX, Apple Silicon). Parity with the upstream Python runtime is gated in laya-rs; not in binary releases yet |
+| `gliner2` | GLiNER2.5 zero-shot label classifier through [gliner2-rs](https://github.com/codesoda/gliner2-rs) and ONNX Runtime | **Available** with `--features gliner2` (CPU). Choice and Noul hold up on the held-out set; Score does not ([evaluation](docs/gliner2-evaluation.md)). Not in binary releases yet |
+| `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable. `s1 backends` reports it unavailable while that variable is unset or empty; the hosted API is never probed, because a probe request is billed |
 | `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
 | `openrouter` | Hosted Jev through OpenRouter | Planned |
-| `gliner2` | GLiNER2.5 zero-shot label classifier through [gliner2-rs](https://github.com/codesoda/gliner2-rs) and ONNX Runtime | **Available** with `--features gliner2` (CPU). Choice and Noul hold up on the held-out set; Score does not ([evaluation](docs/gliner2-evaluation.md)). Not in binary releases yet |
 
 Enable only the instances you need. Disabled local backends do not load
-weights; disabled remote backends do not read credentials. There is **no
-silent local-to-cloud fallback**.
+weights; disabled remote backends send no credential anywhere. `s1 backends`
+only reads whether the named variable holds a value, and never prints it.
+There is **no silent local-to-cloud fallback**.
 
 ### Built with
 
@@ -343,9 +346,11 @@ Response shape (**illustrative values**, not a promised prediction):
 }
 ```
 
-`jev-latest` is an accepted alias for the selected backend's model, not a call
-to hosted Jev; the response reports the actual model. `output_tokens` is zero
-because nothing is generated. Routing evidence travels in headers, so the JSON
+`jev-latest` is an accepted alias that resolves to the selected backend's
+model; the response reports the actual model. It reaches the hosted Jev API
+only when the selected backend is a `typesafe` instance. `output_tokens` is zero
+for the local backends, because nothing is generated; a hosted backend reports
+the count its API returned. Routing evidence travels in headers, so the JSON
 stays SDK-compatible: `x-systemone-backend`, `x-systemone-model`,
 `x-systemone-request-id`, `x-systemone-elapsed-ms`, `x-systemone-execution`,
 `x-systemone-fallback`, `x-systemone-probability-status` and
@@ -511,6 +516,44 @@ normalized margin `(max − 1/n)/(1 − 1/n)`. JSON state is rendered as compact
 JSON; the model does not weigh numeric fields well. Truncation by the
 checkpoint's word cap is disclosed in `x-systemone-truncation`.
 
+A TypeSafe instance needs no build feature and no local files. It calls the
+hosted API at `https://api.typesafe.ai`, which is fixed in code; no setting
+changes the destination:
+
+```toml
+[backends.cloud-typesafe]
+kind = "typesafe"
+enabled = true
+model = "jev-1.13.0"
+aliases = ["jev-latest"]
+
+[backends.cloud-typesafe.settings]
+api_key_env = "TYPESAFE_API_KEY"
+```
+
+The key is read from that environment variable when the server starts; it
+never lives in configuration. Answers, usage counters and model identity
+arrive as the API reported them. SystemOne validates the body and refuses a
+corrupt one; it never repairs or renormalizes it. One request is one upstream
+call: no retries and no fallback.
+
+**Model identity.** `model` defaults to `jev-latest`, which is an upstream
+alias, so an instance that sets no `model` takes the alias path described
+here. Pin a concrete version, as above, for a stable identity:
+SystemOne resolves the requested `jev-latest` to the configured
+`jev-1.13.0`, sends that upstream, and the answer names the same model as the
+single `/v1/models` card. Configure an upstream alias as the instance `model`
+instead and the answer carries whatever concrete identity the API picked for
+that alias, because model identity is passed through verbatim. The upstream
+catalogue lists aliases only and does not reveal the version behind them.
+
+**Key order.** The `answers` object follows the question order of the request
+and each Choice `probabilities` map follows the order the options were
+declared in, for hosted answers exactly as for local ones. That is key order
+only; no probability, label or answer value is altered. If the upstream answer
+carries a different label set than the request declared, or misses or adds an
+answer, the body is invalid and the request fails. SystemOne never repairs it.
+
 ## Models
 
 | Model ID | Quantization | Approx. download | When to try it |
@@ -540,8 +583,9 @@ registry and re-verifies every cached file by SHA-256 before it says
   per request; Choice has 1–16 options, Score 2–16 levels; bodies are limited to
   1 MiB. Duplicate JSON keys are rejected. OpenJev accepts integer-only JSON
   state; floats are a validation error.
-- **Three local backend kinds today.** Hosted adapters are planned. Laya and
-  GLiNER2 are not in the binary releases yet (build from source).
+- **Three local backend kinds and one hosted backend today.** The Vercel AI
+  Gateway and OpenRouter passthroughs are planned. Laya and GLiNER2 are not in
+  the binary releases yet (build from source).
 - **GLiNER2 Score is weak.** On the held-out set it scored 50% exact on every
   checkpoint and inverted an essay rubric. Use Choice with named categories
   where you can. GLiNER2 runs on CPU only; CoreML/CUDA are rejected, not
@@ -566,6 +610,7 @@ registry and re-verifies every cached file by SHA-256 before it says
 
 - [x] `s1` CLI, layered configuration and the OpenJev backend.
 - [x] Resident Jev-compatible HTTP service, verified with the official JS SDK.
+- [x] TypeSafe hosted Jev backend (`kind = "typesafe"`).
 - [x] Tagged binary releases for Apple Silicon and Linux x86-64.
 - [ ] Hosted Jev passthrough (Vercel AI Gateway, OpenRouter).
 - [x] Laya backend behind laya-core's parity gate (source build).

@@ -108,7 +108,10 @@ pub struct BackendDescription {
     pub id: BackendId,
     pub kind: ProviderKind,
     pub model: String,
-    /// Whether this build can actually load this backend.
+    /// Whether [`Backend::load`] finds its preconditions met right now.
+    /// A local kind checks the build feature and the model on disk; a
+    /// hosted kind checks the credential it needs. Neither contacts the
+    /// runtime or the API to find out.
     pub available: bool,
     /// Why not, if `available` is false.
     #[serde(skip_serializing_if = "Option::is_none")]

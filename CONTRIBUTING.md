@@ -42,7 +42,9 @@ merged.
 ## Development checks
 
 Rust 1.95 is pinned by `rust-toolchain.toml`. The default build compiles no
-inference runtime and runs offline; `native`, `metal`, and `cuda` on
+inference runtime, so it runs no local inference; the hosted `typesafe`
+adapter is always linked, so a default build does reach the network when a
+hosted instance is configured and selected. `native`, `metal`, and `cuda` on
 `systemone-cli` add OpenJev, `laya-cpu` / `laya-metal` add Laya, and `gliner2`
 adds GLiNER2 (ONNX Runtime, fetched prebuilt at build time). All need CMake
 plus a C/C++ toolchain; `laya-metal` compiles MLX from source (macOS).
@@ -83,7 +85,66 @@ cd compat/sdk-js && npm ci
 SYSTEMONE_BASE_URL=http://127.0.0.1:8080 node smoke.mjs                              # openjev
 SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=laya node smoke.mjs # laya
 SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=gliner2 node smoke.mjs # gliner2
+SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=typesafe node smoke.mjs # typesafe
 ```
+
+Every backend runs the same assertions. The only per-backend part is the
+`expectations` table at the top of `smoke.mjs`, which records two genuine
+differences: whether the backend reports zero output tokens (OpenJev, Laya and
+GLiNER2 generate nothing) or a positive count (TypeSafe generates), and whether
+float JSON state values are rejected with a 422 (OpenJev) or accepted (Laya,
+GLiNER2, TypeSafe). Everything else — one model card, `model` equal to that
+card's name, the declared key order of every distribution, the score legend,
+the numeric bounds, positive input tokens and the unknown-model 404 — is
+shared and unconditional.
+
+The `typesafe` leg needs a server that points at the hosted API. Write a
+throw-away config in a scratch directory and start `s1` there, because `s1`
+reads `./systemone.config.toml` from the working directory:
+
+```toml
+# /tmp/s1-typesafe/systemone.config.toml
+default_backend = "hosted"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[backends.hosted]
+kind = "typesafe"
+enabled = true
+model = "jev-1.13.0"
+aliases = ["jev-latest"]
+
+[backends.hosted.settings]
+api_key_env = "TYPESAFE_API_KEY"
+
+# The built-in defaults enable a local OpenJev instance, and `serve` refuses
+# to start when an enabled backend cannot load. Partial overrides merge, so
+# this one line is enough to leave it out of this run.
+[backends.local]
+enabled = false
+```
+
+```sh
+cd /tmp/s1-typesafe && source ~/.typesafe.env && s1 serve
+```
+
+Read the key from a file that the shell sources, as above. A `VAR=value s1
+serve` prefix puts it in the shell history and in the process listing.
+
+Pin a concrete model version, as above. The upstream catalogue lists aliases
+only (`jev-latest`, `jev-preview`) and does not reveal the version behind them,
+so a request for `jev-latest` comes back as, for example, `jev-1.13.0`.
+SystemOne passes upstream model identity through verbatim, so configuring the
+alias as the instance `model` would make the answer name a model the catalogue
+does not list. With the concrete version configured and the alias accepted
+through `aliases`, SystemOne resolves `jev-latest` to `jev-1.13.0`, sends that
+upstream, and the answer matches the single `/v1/models` card.
+
+The key never belongs in the repository, in a committed config or in a log.
+The run calls the hosted API and bills the account behind `TYPESAFE_API_KEY`,
+so run it only when you change the TypeSafe adapter.
 
 The GLiNER2 adapter also has a held-out product evaluation
 (`evals/gliner2/run.py`, results in `docs/gliner2-evaluation.md`). Rerun it

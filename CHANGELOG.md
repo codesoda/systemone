@@ -9,6 +9,62 @@ workflow.
 
 ### Added
 
+- `typesafe` backend kind (`systemone-remote` crate): direct hosted Jev
+  passthrough to `https://api.typesafe.ai/v1/systemone` with a shared remote
+  HTTP transport (bounded response bodies, disabled redirects, single send,
+  no fallback), operator-configured API-key environment variable,
+  selector stripping, verbatim answer/usage/model passthrough, sanitized error
+  envelopes, and strict parsing of the TypeSafe `/v1/models` catalogue in the
+  library API that the live smoke uses; the served catalogue is unchanged, as
+  `GET /v1/models` serves the one card of the configured instance model, as it
+  does for every other kind. Includes
+  credential-free mock tests and an opt-in, spend-acknowledged live smoke
+  test (`TYPESAFE_API_KEY` + `SYSTEMONE_LIVE_SMOKE=spend-acknowledged`). The
+  adapter forwards request state unchanged, floats included, because the
+  hosted API accepts them and OpenJev's float rejection is an adapter
+  limitation rather than a SystemOne rule; it passes through upstream
+  FastAPI-style `{"detail": …}` errors with their status and a sanitized
+  message, keeps a reported `error_type` even when the envelope message is
+  not a string, and reports itself unavailable in `s1 backends` when the
+  configured API-key environment variable is unset or empty. Availability is
+  credential-scoped only; the API is never probed, because a health request
+  would be billed. A missing credential fails `load` as unavailable, the way
+  a missing build feature or model directory does for the local kinds, and an
+  environment value that is not valid UTF-8 reports as set-but-unusable
+  instead of unset. Upstream distributions are checked at the precision they
+  arrive in (two decimals per entry), so a correct body that sums to 0.99 is
+  accepted, not refused after it was billed; SystemOne still never
+  renormalizes. `s1 backends` and `s1 --version` report the kind in their
+  `build` map, because a hosted adapter is always linked. Hosted answers are
+  returned in the key order the request declared: the `answers` object follows
+  the request's question order and each Choice `probabilities` map follows the
+  order its options were declared in, so a hosted answer reads like a local
+  one. That moves keys only; no probability, label, answer value, usage
+  counter or model identity is changed. Alignment is not repair: an upstream
+  body that misses, adds, renames or retypes an answer or a Choice label is an
+  invalid body and fails the request. A score answer keeps its positional
+  scale: one that covers more or fewer levels than the request declared is
+  refused as well, instead of reaching the caller with the upstream's rubric.
+  `model` defaults to the upstream alias `jev-latest` when the instance sets
+  none, so pin a concrete version for a stable identity.
+- `examples/systemone.config.toml` and the README Configuration section show
+  a `typesafe` instance pinned to a concrete model version
+  (`model = "jev-1.13.0"`, `aliases = ["jev-latest"]`). The upstream catalogue
+  lists aliases only and never the version behind them, so pinning the version
+  is what gives the instance a stable identity: SystemOne resolves the
+  requested alias to the configured model before the call, and the answer names
+  the same model as the single `/v1/models` card. Configuring an upstream alias
+  as the instance `model` stays allowed and means the answer carries whichever
+  concrete identity the API picked, because identity is passed through
+  verbatim.
+- Strict Jev response parsing in `systemone-http::wire` for hosted backends.
+  Unknown top-level and answer fields are ignored upstream extensions, which
+  includes a `confidence` on a `noul` answer, because the neutral answer has
+  no such field. Score `legend` and `probabilities` keys must be contiguous
+  zero-based decimal indexes, so a sparse or one-based scale is refused
+  instead of silently renumbered onto the positional vectors. An upstream
+  `id` longer than 256 bytes is dropped instead of rejected, so an
+  already-billed response body still reaches the caller.
 - Rust workspace with `systemone-core`, `systemone-config`, `systemone-openjev`,
   `systemone-http` and `systemone-cli` (binary `s1`).
 - Neutral `DecisionHost` trait (`capabilities`, `evaluate`, `shutdown`) that
@@ -52,7 +108,17 @@ workflow.
   Rust 1.95.0 library notice, and the MPL-2.0 `colored`/`option-ext` source
   archives checked against `Cargo.lock`.
 - aislop quality gate (`failBelow: 95`).
-- TypeSafe JS SDK compatibility smoke under `compat/sdk-js/`.
+- TypeSafe JS SDK compatibility smoke under `compat/sdk-js/`, with a
+  `SYSTEMONE_SMOKE_BACKEND=typesafe` leg that runs against the hosted API and
+  bills the account. Every backend runs the same assertions. The only
+  per-backend part is one `expectations` table, which records the two genuine
+  differences: whether the backend generates nothing and reports zero output
+  tokens (OpenJev, Laya, GLiNER2) or generates and reports a positive count
+  (TypeSafe), and whether float JSON state values are rejected with a 422
+  (OpenJev) or accepted (Laya, GLiNER2, TypeSafe). One model card, `model`
+  equal to that card's name, the declared key order of every distribution, the
+  score legend, the numeric bounds, positive input tokens and the
+  unknown-model 404 are shared and unconditional.
 - README on the Best-README-Template layout with the staged VHS walkthrough
   (`demo/`, `docs/demo.md`), plus `CONTRIBUTING.md`, `SECURITY.md`,
   `SUPPORT.md` and `CODE_OF_CONDUCT.md`. Future work lives in GitHub issues;

@@ -3,13 +3,31 @@ import { TypeSafeClient, choice, noul, score } from "@typesafe-ai/sdk";
 
 const baseURL = process.env.SYSTEMONE_BASE_URL ?? "http://127.0.0.1:8080";
 const apiKey = process.env.SYSTEMONE_API_KEY ?? "systemone-local-sdk-smoke";
-// Which backend kind the server is running; only backend-specific limits
-// differ. openjev: float state values are rejected (422). laya and gliner2:
-// accepted.
+// Every backend runs the same assertions. Only the two facts below are
+// genuinely per-backend, so they are stated once here instead of branching in
+// the body of the smoke.
+//   outputTokens "zero"    - the backend generates no tokens and reports 0.
+//   outputTokens "counted" - the backend generates and reports a real count.
+//   floatState "rejected-422" / "accepted" - how float JSON state values end.
+// The TypeSafe server config for this smoke pins model = "jev-1.13.0" with
+// aliases = ["jev-latest"], so the requested alias resolves to the configured
+// model and the answer names the catalogue's single card, as everywhere else.
+const expectations = {
+  openjev: { outputTokens: "zero", floatState: "rejected-422" },
+  laya: { outputTokens: "zero", floatState: "accepted" },
+  gliner2: { outputTokens: "zero", floatState: "accepted" },
+  typesafe: { outputTokens: "counted", floatState: "accepted" },
+};
 const backendKind = process.env.SYSTEMONE_SMOKE_BACKEND ?? "openjev";
-if (!["openjev", "laya", "gliner2"].includes(backendKind)) {
-  throw new Error(`SYSTEMONE_SMOKE_BACKEND must be openjev, laya or gliner2, got ${backendKind}`);
+// `Object.hasOwn` and not a truthiness test: a plain object inherits
+// `constructor`, `toString` and more, so a lookup alone would accept those
+// names as backends and then read undefined expectations from them.
+if (!Object.hasOwn(expectations, backendKind)) {
+  throw new Error(
+    `SYSTEMONE_SMOKE_BACKEND must be one of ${Object.keys(expectations).join(", ")}, got ${backendKind}`,
+  );
 }
+const expected = expectations[backendKind];
 const client = new TypeSafeClient({
   apiKey,
   baseURL,
@@ -36,8 +54,12 @@ const result = await client.systemOne({
   },
 });
 
-assert.equal(typeof models[0].description, "string");
-assert.equal(typeof models[0].release_date, "string");
+for (const card of models) {
+  assert.equal(typeof card.name, "string");
+  assert.ok(card.name.length > 0);
+  assert.equal(typeof card.description, "string");
+  assert.equal(typeof card.release_date, "string");
+}
 assert.equal(result.model, models[0].name);
 assert.deepEqual(Object.keys(result.answers), ["route", "review", "urgency"]);
 const probability = (value) => {
@@ -65,7 +87,14 @@ assert.deepEqual(urgency.legend, { "0": "low", "1": "medium", "2": "high" });
 probability(urgency.confidence);
 distribution(urgency.probabilities, ["0", "1", "2"]);
 assert.ok(Number.isSafeInteger(result.usage.input_tokens) && result.usage.input_tokens > 0);
-assert.equal(result.usage.output_tokens, 0);
+if (expected.outputTokens === "zero") {
+  assert.equal(result.usage.output_tokens, 0);
+} else {
+  assert.ok(
+    Number.isSafeInteger(result.usage.output_tokens) && result.usage.output_tokens > 0,
+    `${backendKind} generates, so it must report a positive output token count`,
+  );
+}
 
 let rejected = false;
 try {
@@ -89,8 +118,12 @@ try {
 } catch (error) {
   floatOutcome = error?.status === 422 ? "rejected-422" : `unexpected:${error?.status ?? error}`;
 }
-if (backendKind === "openjev") {
-  assert.equal(floatOutcome, "rejected-422", "openjev must reject float state values with the SDK's 422 path");
+if (expected.floatState === "rejected-422") {
+  assert.equal(
+    floatOutcome,
+    "rejected-422",
+    `${backendKind} must reject float state values with the SDK's 422 path`,
+  );
 } else {
   assert.equal(floatOutcome, "accepted", `${backendKind} must accept float state values`);
 }

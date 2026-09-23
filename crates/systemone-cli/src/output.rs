@@ -18,6 +18,7 @@ pub struct VersionOutput {
     pub openjev: &'static str,
     pub laya: &'static str,
     pub gliner2: &'static str,
+    pub typesafe: &'static str,
 }
 
 pub fn write_json<W: Write + ?Sized, T: Serialize>(

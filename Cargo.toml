@@ -3,6 +3,7 @@ members = [
     "crates/systemone-core",
     "crates/systemone-config",
     "crates/systemone-openjev",
+    "crates/systemone-remote",
     "crates/systemone-laya",
     "crates/systemone-gliner2",
     "crates/systemone-http",
@@ -21,6 +22,7 @@ repository = "https://github.com/codesoda/systemone"
 systemone-core = { path = "crates/systemone-core" }
 systemone-config = { path = "crates/systemone-config" }
 systemone-openjev = { path = "crates/systemone-openjev" }
+systemone-remote = { path = "crates/systemone-remote" }
 systemone-laya = { path = "crates/systemone-laya" }
 systemone-gliner2 = { path = "crates/systemone-gliner2" }
 systemone-http = { path = "crates/systemone-http" }
