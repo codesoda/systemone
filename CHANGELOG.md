@@ -24,6 +24,15 @@ workflow.
   for missing instructions, and `x-systemone-truncation` disclosure. Verified
   end to end with the JS SDK smoke on CPU and Metal; numerical parity with the
   upstream Python runtime is gated in laya-rs, not here.
+- GLiNER2 backend (`systemone-gliner2`, `kind = "gliner2"`) over gliner2-rs
+  pinned by Git revision, behind the `gliner2` feature (ONNX Runtime, CPU
+  only). Loads only the classifier files of a GLiNER2.5 bundle, verifies them
+  against the bundle manifest, and maps Choice/Noul/Score onto full softmax
+  distributions with one encoder pass per question. Held-out results per
+  checkpoint are in `docs/gliner2-evaluation.md`; Score is documented as a
+  derived ordinal classification that did not work as a grader. One binary
+  can link llama.cpp, MLX/Candle and ONNX Runtime together (verified on
+  Apple Silicon).
 - Commands: `serve`, `run` (single request or `--jsonl` batch through one model
   load), `call`, `decide`, `noul`, `score`, `backends`, `models`,
   `config check|show`, `openjev models pull|path`, `openjev probe`.

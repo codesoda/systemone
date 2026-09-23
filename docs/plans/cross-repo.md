@@ -26,7 +26,7 @@ Inspected source snapshots (these are observations, not a dependency lockfile):
 | --- | --- | --- |
 | openjev-rs | `8452ef0e5890497deb2cec95f16dc8d94d0c0c02` (pinned) | Library-only: `openjev-core` and `openjev-llama`. The former CLI/HTTP server was removed in this revision and reimplemented here |
 | laya-rs | `23fff422666fd5039998fd8a55ca57f7e40d224b` (pinned) | `crates/laya-core`: Rust runtime with MLX (Metal) and Candle (CPU) backends, parity-gated against the frozen Python goldens; Python baseline/assets/goldens retained for that gate |
-| gliner2-rs | `2883a7301d4de8e2af167e4ce2ca9d9d230f65d3` | Rust `gliner2-rs` package, imported as `gliner2_rs`; ONNX classification pipeline exists |
+| gliner2-rs | `1bcf40e80c114ceb707d172b3efd28b577121b39` (tag `v0.2.0`, pinned) | Rust `gliner2-rs` package, imported as `gliner2_rs`; GLiNER2.5 boundary runtime on direct ORT 1.28 with `ClassificationPipeline`, `score_classification*` (complete ordered distributions) and `RuntimeOptions` (CPU only) |
 
 The GLiNER checkout was locally named `gliners2`; its remote is codesoda/gliner2-rs. Do not mistake a local directory name for a different repository.
 
@@ -36,7 +36,7 @@ OpenJev's uncommitted Discuss-style config work was ported into `systemone-confi
 
 - OpenJev: `Decision::new`, `StateValue`, `Noul`, `Score`; model registry/cache resolution; `EngineHandle::spawn_resolved`, `score_direct`, `score_shared`, `score_batch`, `shutdown`. Read exact current signatures and feature gates from upstream source before implementation. The engine owns native state on a thread; its synchronous methods must not block HTTP executor threads.
 - OpenJev's `server/jev.rs` is the existing wire/projection reference, not a universal inference contract. Core native decisions allow 2–16 options; the server handles singleton Choice deterministically. State restrictions include integer-only JSON in this adapter. These limits must not be imposed on every backend.
-- GLiNER: `Gliner2Pipeline::classify(text, task, labels, multi_label, cls_threshold)` returns winner-only `Single` or threshold-filtered `Multi`. Neither is the full categorical distribution needed here. Add a public pipeline API exposing ordered logits/probabilities with explicit activation and runtime settings; do not recreate private embedding assembly in SystemOne. Classification-only construction should avoid loading an unused extractor.
+- GLiNER (historical finding, resolved at `1492d6b`): `Gliner2Pipeline::classify(text, task, labels, multi_label, cls_threshold)` returned winner-only `Single` or threshold-filtered `Multi`. Neither was the full categorical distribution needed here. Add a public pipeline API exposing ordered logits/probabilities with explicit activation and runtime settings; do not recreate private embedding assembly in SystemOne. Classification-only construction should avoid loading an unused extractor.
 - Laya: build the actual Rust library behind its existing Python-first/parity gates. Amend its roadmap to make SystemOne the primary new multi-backend HTTP/queue layer rather than duplicating that work. This document does not itself change the upstream roadmap or remove a promised standalone CLI.
 
 ## 3. Workspace and trait design
@@ -52,7 +52,7 @@ crates/
   systemone-cli/           # binary: systemone
   systemone-openjev/       # wrapper over upstream library crates
   systemone-laya/          # laya-core adapter (feature-gated: laya-cpu, laya-metal)
-  systemone-gliner2/       # wrapper over upstream classification library
+  systemone-gliner2/       # gliner2-rs adapter (feature-gated: gliner2; CPU only)
   systemone-remote/        # shared HTTP transport, separate Vercel/OpenRouter adapters
 compat/                   # pinned SDK fixtures, request/response/error corpus
 benchmarks/               # cross-backend quality and service performance
@@ -225,7 +225,7 @@ Every milestone ends with formatting, `cargo clippy --workspace --all-targets --
 | M1 OpenJev adapter, one-shot CLI, config | Done | [CHANGELOG](../../CHANGELOG.md) |
 | M2 Resident HTTP service, SDK compatibility | Done (JS SDK); Python SDK and overhead measurement open | [CHANGELOG](../../CHANGELOG.md), issues |
 | M3 Hosted Jev passthrough (Vercel, OpenRouter) | Planned | GitHub issues |
-| M4 GLiNER2 adapter | Planned; needs upstream library gate | GitHub issues |
+| M4 GLiNER2 adapter | Done as a source build (`gliner2` feature, CPU); held-out results in `docs/gliner2-evaluation.md`; binary packaging open | GitHub issues |
 | M5 Laya Python baseline → Rust runtime → adapter | Done as a source build (`laya-cpu`/`laya-metal`); binary packaging open | [CHANGELOG](../../CHANGELOG.md), issues |
 | M6 Cross-backend quality and performance | Planned | GitHub issues |
 | M7 Portable releases (Windows, signing, clean-machine smoke) | macOS/Linux archives ship; rest planned | GitHub issues |
@@ -256,7 +256,7 @@ Open implementation decisions with required resolution gates:
 | --- | --- | --- |
 | Exact SDK versions and wire precision/error projection | M0/M2 pinned fixtures + actual SDK parsing | Describe compatibility as planned |
 | Upstream library revisions and native linker coexistence | M0 reviewed source/build matrix | Remote-only build; do not enable failing profile |
-| GLiNER full distribution / provider controls | M4 upstream API + model tests | Adapter unavailable, not winner-only approximation |
+| GLiNER full distribution / provider controls | Delivered upstream (gliner2-rs #6/#7/#8) with goldens for three checkpoints | Adapter uses the full softmax; sigmoid is never requested |
 | Laya Rust runtime and Metal implementation | M5 Python/MLX baseline + Rust parity/package feasibility | Adapter unavailable, no hidden Python dependency |
 | Confidence/calibration comparability | M6 held-out domain-specific evidence | Expose provenance; no universal threshold guarantee |
 | Accelerator release combinations | M7 clean-machine artifact tests | Ship only verified bundles and disclose omissions |

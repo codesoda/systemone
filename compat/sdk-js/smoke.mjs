@@ -4,10 +4,11 @@ import { TypeSafeClient, choice, noul, score } from "@typesafe-ai/sdk";
 const baseURL = process.env.SYSTEMONE_BASE_URL ?? "http://127.0.0.1:8080";
 const apiKey = process.env.SYSTEMONE_API_KEY ?? "systemone-local-sdk-smoke";
 // Which backend kind the server is running; only backend-specific limits
-// differ. openjev: float state values are rejected (422). laya: accepted.
+// differ. openjev: float state values are rejected (422). laya and gliner2:
+// accepted.
 const backendKind = process.env.SYSTEMONE_SMOKE_BACKEND ?? "openjev";
-if (!["openjev", "laya"].includes(backendKind)) {
-  throw new Error(`SYSTEMONE_SMOKE_BACKEND must be openjev or laya, got ${backendKind}`);
+if (!["openjev", "laya", "gliner2"].includes(backendKind)) {
+  throw new Error(`SYSTEMONE_SMOKE_BACKEND must be openjev, laya or gliner2, got ${backendKind}`);
 }
 const client = new TypeSafeClient({
   apiKey,
@@ -91,7 +92,7 @@ try {
 if (backendKind === "openjev") {
   assert.equal(floatOutcome, "rejected-422", "openjev must reject float state values with the SDK's 422 path");
 } else {
-  assert.equal(floatOutcome, "accepted", "laya must accept float state values");
+  assert.equal(floatOutcome, "accepted", `${backendKind} must accept float state values`);
 }
 
 console.log(JSON.stringify({
