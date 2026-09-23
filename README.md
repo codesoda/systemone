@@ -89,7 +89,7 @@ coverage.
 | `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | **Available.** Prompt/token parity and explicit serial fallback preserved |
 | `laya` | Bidirectional encoder with trained decision heads through [laya-core](https://github.com/codesoda/laya-rs) | **Available** with `--features laya-cpu` (Candle) or `laya-metal` (MLX, Apple Silicon). Parity with the upstream Python runtime is gated in laya-rs; not in binary releases yet |
 | `gliner2` | GLiNER2.5 zero-shot label classifier through [gliner2-rs](https://github.com/codesoda/gliner2-rs) and ONNX Runtime | **Available** with `--features gliner2` (CPU). Choice and Noul hold up on the held-out set; Score does not ([evaluation](docs/gliner2-evaluation.md)). Not in binary releases yet |
-| `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable |
+| `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable. `s1 backends` reports it unavailable while that variable is unset or empty; the hosted API is never probed, because a probe request is billed |
 | `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
 | `openrouter` | Hosted Jev through OpenRouter | Planned |
 

@@ -6,6 +6,14 @@
 //! passed through verbatim after strict parsing — SystemOne preserves
 //! upstream answers, usage and model identity, and refuses to repair
 //! corrupt distributions.
+//!
+//! Requests pass through too. The adapter adds no value restriction of its
+//! own: the upstream owns its request limits, and duplicating them here
+//! would refuse requests the live service answers. Float state values are
+//! the example. The OpenJev adapter rejects them because its own state
+//! type is integer-only; that is an adapter limitation, not a SystemOne
+//! rule (see `docs/plans/cross-repo.md` §5). The TypeSafe API accepts
+//! floats, so this adapter forwards them.
 
 use std::time::{Duration, Instant};
 
@@ -93,16 +101,37 @@ impl TypesafeBackend {
         &self,
         base_url: &str,
     ) -> Result<Box<dyn DecisionHost>, HostError> {
-        // SAFETY-free by design: the key is read through `std::env::var`
-        // (not removed), and tests drive `load_with_key` instead of
-        // mutating the environment.
-        let api_key = std::env::var(&self.api_key_env).map_err(|_| {
-            HostError::validation(format!(
+        // The key is read through `std::env::var` (never removed), and
+        // tests drive `load_with_key` instead of mutating the environment.
+        self.load_with_key(base_url, std::env::var(&self.api_key_env).ok())
+    }
+
+    /// Why this backend cannot serve a request right now.
+    ///
+    /// A hosted passthrough needs no build feature and no local model, so
+    /// the credential named by `settings.api_key_env` is the only
+    /// precondition. [`Backend::load`] fails with the same message, so
+    /// `s1 backends` never reports a backend as available that cannot
+    /// load. Reachability of the API is not checked: a health probe would
+    /// be a billed request.
+    fn unavailable_reason(&self) -> Option<String> {
+        self.unavailable_reason_for(std::env::var(&self.api_key_env).ok().as_deref())
+    }
+
+    /// Availability for an already-resolved credential. Tests use this so
+    /// they never mutate the environment.
+    pub(crate) fn unavailable_reason_for(&self, api_key: Option<&str>) -> Option<String> {
+        match api_key {
+            Some(key) if !key.trim().is_empty() => None,
+            Some(_) => Some(format!(
+                "environment variable {} is set but empty",
+                self.api_key_env
+            )),
+            None => Some(format!(
                 "environment variable {} (backends.{}.settings.api_key_env) is not set; export the TypeSafe API key",
                 self.api_key_env, self.id
-            ))
-        })?;
-        self.load_with_key(base_url, Some(api_key))
+            )),
+        }
     }
 
     /// Load with the credential supplied by the caller, so tests never
@@ -149,12 +178,13 @@ impl Backend for TypesafeBackend {
     }
 
     fn describe(&self) -> BackendDescription {
+        let reason = self.unavailable_reason();
         BackendDescription {
             id: self.id.clone(),
             kind: ProviderKind::Typesafe,
             model: self.model.clone(),
-            available: true,
-            unavailable_reason: None,
+            available: reason.is_none(),
+            unavailable_reason: reason,
             // Non-secret by construction: only the variable's name.
             settings: serde_json::json!({ "api_key_env": self.api_key_env }),
         }
@@ -263,24 +293,32 @@ impl TypesafeHost {
     /// through unchanged.
     fn upstream_error(&self, reply: &RemoteReply) -> HostError {
         let body = std::str::from_utf8(&reply.body).unwrap_or("");
-        if let Ok(value) = wire::parse_strict(body)
-            && let Value::Object(fields) = value
-            && let Some(Value::String(message)) = fields.get("message")
-        {
-            let code = match fields.get("error_type") {
-                Some(Value::String(error_type)) => Some(error_type.clone()),
-                _ => Some("upstream_error".to_owned()),
-            };
+        let fields = match wire::parse_strict(body) {
+            Ok(Value::Object(fields)) => fields,
+            _ => {
+                return HostError::Upstream {
+                    status: Some(reply.status),
+                    code: None,
+                    message: self.sanitize("upstream returned an error with an unrecognized body"),
+                };
+            }
+        };
+        let error_type = fields.get("error_type").and_then(Value::as_str);
+        let message = fields.get("message").and_then(Value::as_str);
+        // One usable half of the envelope is enough. A malformed message
+        // never discards the classification the upstream did report.
+        if error_type.is_some() || message.is_some() {
+            let message = message.map_or_else(
+                || format!("upstream returned HTTP {}", reply.status),
+                str::to_owned,
+            );
             return HostError::Upstream {
                 status: Some(reply.status),
-                code,
-                message: self.sanitize(message),
+                code: Some(error_type.unwrap_or("upstream_error").to_owned()),
+                message: self.sanitize(&message),
             };
         }
-        if let Ok(value) = wire::parse_strict(body)
-            && let Value::Object(fields) = value
-            && let Some(detail) = fields.get("detail")
-        {
+        if let Some(detail) = fields.get("detail") {
             let code = if matches!(detail, Value::Array(_)) {
                 "validation_error"
             } else {
@@ -383,14 +421,10 @@ impl DecisionHost for TypesafeHost {
             .resolve_model(request.model.as_deref())?
             .to_owned();
         context.check()?;
-        // SystemOne's service contract rejects floats on the wire so every
-        // backend behaves identically; the upstream accepts them, so the
-        // adapter enforces the rule before sending (openjev enforces it
-        // during conversion).
-        reject_floats(&request.state, "state").map_err(HostError::Validation)?;
         let timeout = Self::remaining_timeout(context)?;
         // Routing selectors never reach this body; `render_request`
-        // projects only the neutral request.
+        // projects only the neutral request. State values, floats
+        // included, go upstream unchanged: the API owns its own limits.
         let body = wire::render_request(request, &model);
         let reply = match self.transport.send(
             Method::POST,
@@ -426,29 +460,6 @@ impl DecisionHost for TypesafeHost {
     fn shutdown(&mut self) -> Result<(), HostError> {
         // The blocking client needs no teardown.
         Ok(())
-    }
-}
-
-/// Reject floats anywhere inside `value`, naming the first offending
-/// position via `path`. The wire format carries whole numbers only, so the
-/// service contract is identical across backends; the hosted upstream is
-/// permissive, so the adapter enforces the rule locally.
-fn reject_floats(value: &Value, path: &str) -> Result<(), String> {
-    match value {
-        Value::Number(number) if number.is_f64() => Err(format!("{path} must not contain floats")),
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                reject_floats(item, &format!("{path}[{index}]"))?;
-            }
-            Ok(())
-        }
-        Value::Object(fields) => {
-            for (key, field) in fields {
-                reject_floats(field, &format!("{path}.{key}"))?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
     }
 }
 

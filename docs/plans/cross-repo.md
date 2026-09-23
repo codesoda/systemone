@@ -174,9 +174,11 @@ All three are required first-class adapters, not optional future inspiration. `t
 - Base URL is fixed in typed operator config (`https://api.typesafe.ai`); request-provided destinations are rejected. HTTPS only, except explicit loopback test endpoints.
 - The API key is read at load time from the environment variable named by `backends.<id>.settings.api_key_env`; the key never appears in config, `describe()` output or logs.
 - SystemOne routing selectors (`backend` field / `X-SystemOne-Backend`) are stripped before forwarding.
-- Upstream answers, usage and model identity pass through verbatim; compatible error envelopes pass through sanitized (bearer key redacted, control characters stripped, messages truncated).
+- Upstream answers, usage and model identity pass through verbatim; compatible error envelopes pass through sanitized (bearer key redacted, control characters stripped, messages truncated). A malformed envelope never discards the classification the upstream did report: an `error_type` without a usable `message` keeps its code and carries a generated status message.
+- Requests pass through with the same discipline. The adapter adds no value restriction the upstream does not have, because refusing a request the live service answers would be SystemOne inventing a limit and hiding a capability. Float state values are the worked example: §5 already records that OpenJev's float rejection is an adapter limitation rather than a global rule, Laya and GLiNER2 accept floats, and a live request carrying float state members was answered with HTTP 200. So `typesafe` forwards floats and lets the API rule on its own input. The SDK smoke pins that difference per backend kind instead of relaxing the shared assertions.
 - Single send: no inference POST retries, no provider fallback.
 - `/v1/models` is TypeSafe's own catalogue, validated and forwarded as-is; no OpenRouter-style normalization.
+- Availability in `s1 backends` follows the same rule as the local kinds: a backend is available only when the precondition its `load` enforces holds. For a hosted passthrough that precondition is the credential named by `settings.api_key_env`, not a build feature or a local model directory, so an unset or empty variable reports unavailable with the reason `load` would give. Reachability of the API is deliberately not probed, because a health inference request would be billed.
 
 ### 6b. Vercel and OpenRouter passthrough (planned)
 

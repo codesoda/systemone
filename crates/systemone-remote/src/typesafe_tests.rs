@@ -40,10 +40,18 @@ struct Recorded {
     authorization: Option<String>,
     content_type: Option<String>,
     body: String,
+    /// False when the peer closed before `Content-Length` bytes arrived.
+    /// The mock records what it got instead of failing its thread.
+    complete: bool,
 }
 
 impl Recorded {
     fn json(&self) -> serde_json::Value {
+        assert!(
+            self.complete,
+            "request body was truncated: {} of the announced bytes arrived",
+            self.body.len()
+        );
         serde_json::from_str(&self.body).expect("sent body is JSON")
     }
 }
@@ -169,14 +177,19 @@ fn read_request(stream: &mut TcpStream) -> Option<Recorded> {
         }
         buffer.extend_from_slice(&chunk[..read]);
     }
-    let body =
-        String::from_utf8_lossy(&buffer[header_end..header_end + content_length]).to_string();
+    // A peer can close early, so the announced length is a claim, not a
+    // fact. Bound the slice by what arrived; an out-of-range index here
+    // would panic the accept thread and hang every later test.
+    let announced_end = header_end.checked_add(content_length)?;
+    let body_end = announced_end.min(buffer.len());
+    let body = String::from_utf8_lossy(buffer.get(header_end..body_end)?).to_string();
     Some(Recorded {
         method,
         path,
         authorization,
         content_type,
         body,
+        complete: body_end == announced_end,
     })
 }
 
@@ -521,6 +534,36 @@ fn load_requires_environment_key() {
     let _ = host;
 }
 
+/// `s1 backends` must not call a backend available that `load` refuses.
+/// The credential is the only precondition a hosted passthrough has; the
+/// adapter needs no build feature and no local model, and it never spends
+/// a billed request to probe reachability.
+#[test]
+fn availability_reports_the_missing_credential() {
+    let backend = backend(vec![]);
+    assert_eq!(backend.unavailable_reason_for(Some("sk-test")), None);
+
+    let unset = backend
+        .unavailable_reason_for(None)
+        .expect("unset key is not available");
+    assert!(unset.contains("TYPESAFE_API_KEY"), "got {unset}");
+    assert!(unset.contains("api_key_env"), "got {unset}");
+
+    let empty = backend
+        .unavailable_reason_for(Some("  "))
+        .expect("empty key is not available");
+    assert!(empty.contains("set but empty"), "got {empty}");
+
+    // The reason repeats what `load` would say, so the two never disagree.
+    let Err(load_error) = backend.load_with_key("http://127.0.0.1:9", None) else {
+        panic!("load must refuse a missing credential");
+    };
+    let HostError::Validation(message) = load_error else {
+        panic!("expected a validation error, got {load_error:?}");
+    };
+    assert_eq!(message, unset);
+}
+
 fn assert_validation_error(result: Result<Box<dyn systemone_core::DecisionHost>, HostError>) {
     match result {
         Err(HostError::Validation(_)) => {}
@@ -535,7 +578,13 @@ fn load_builds_host_and_describe_hides_the_secret() {
     assert_eq!(backend.kind(), systemone_core::ProviderKind::Typesafe);
     assert_eq!(backend.id().as_str(), "direct");
     let description = backend.describe();
-    assert!(description.available);
+    // Availability follows the credential, exactly as `load` does. The
+    // test reads the environment; it never writes it.
+    let key_usable = std::env::var("TYPESAFE_API_KEY")
+        .map(|key| !key.trim().is_empty())
+        .unwrap_or(false);
+    assert_eq!(description.available, key_usable);
+    assert_eq!(description.unavailable_reason.is_none(), key_usable);
     assert_eq!(description.model, DEFAULT_MODEL);
     assert_eq!(
         description.settings,
@@ -592,21 +641,82 @@ fn settings_reject_secret_values_and_bad_env_names() {
     assert!(serde_json::from_str::<TypesafeSettings>(r#"{"api_key_env":"X","extra":1}"#).is_err());
 }
 
+/// Floats in state reach the API unchanged. The live TypeSafe API answers
+/// such a request with HTTP 200, so the adapter adds no rejection of its
+/// own. OpenJev's integer-only state is an adapter limitation, not a
+/// SystemOne rule (`docs/plans/cross-repo.md` §5).
 #[test]
-fn floats_in_state_are_rejected_before_sending() {
-    let body = br#"{"state":{"nested":{"count":1.5}},"questions":{"worth":{"type":"noul","criteria":{"true":"it works"}}}}"#;
+fn floats_in_state_are_forwarded_unchanged() {
+    let body = br#"{"state":{"nested":{"count":1.5},"ratios":[0.25]},"questions":{"worth":{"type":"noul","criteria":{"true":"it works"}}}}"#;
     let request = wire::parse_request(body).expect("parse").request;
     let server = MockServer::start(Script::Reply(200, upstream_ok()));
     let mut host = host(&server.base());
-    let error = systemone_core::DecisionHost::evaluate(&mut host, &request, &context_no_deadline())
-        .expect_err("floats must be rejected");
-    assert!(
-        matches!(error, HostError::Validation(ref message) if message.contains("state.nested.count")),
-        "expected a validation error naming the float position, got {error:?}"
+    systemone_core::DecisionHost::evaluate(&mut host, &request, &context_no_deadline())
+        .expect("floats are forwarded, not rejected");
+    let sent = server.single().json();
+    assert_eq!(
+        sent["state"],
+        serde_json::json!({"nested":{"count":1.5},"ratios":[0.25]}),
+        "state must reach the upstream byte-for-byte"
     );
-    // Rejected locally: nothing was sent, so nothing was billed.
+}
+
+#[test]
+fn upstream_error_type_survives_a_non_string_message() {
+    for body in [
+        r#"{"error_type":"rate_limited","message":{"detail":"slow down"}}"#,
+        r#"{"error_type":"rate_limited","message":null}"#,
+        r#"{"error_type":"rate_limited"}"#,
+    ] {
+        let server = MockServer::start(Script::Reply(429, body.to_owned()));
+        let mut host = host(&server.base());
+        let error = evaluate(&mut host).expect_err("must fail");
+        let HostError::Upstream {
+            status,
+            code,
+            message,
+        } = &error
+        else {
+            panic!("expected HostError::Upstream, got {error:?}");
+        };
+        assert_eq!(*status, Some(429));
+        // The classification the upstream did report is kept.
+        assert_eq!(code.as_deref(), Some("rate_limited"), "body {body}");
+        assert!(
+            message.contains("429"),
+            "body {body} gave message {message}"
+        );
+    }
+}
+
+/// A truncated request body must not panic the accept thread. A panic
+/// there would take the listener down and hang every later connection.
+#[test]
+fn truncated_request_body_does_not_break_the_mock_listener() {
+    use std::net::TcpStream;
+
+    let server = MockServer::start(Script::Reply(200, upstream_ok()));
+    let mut raw = TcpStream::connect(server.addr).expect("connect");
+    raw.write_all(
+        b"POST /v1/systemone HTTP/1.1\r\nHost: mock\r\nContent-Type: application/json\r\nContent-Length: 4096\r\n\r\n{\"model\":\"jev\",",
+    )
+    .expect("write truncated request");
+    raw.shutdown(std::net::Shutdown::Write).expect("half close");
+    let mut ignored = Vec::new();
+    let _ = raw.read_to_end(&mut ignored);
+    drop(raw);
+
+    // The listener recorded what arrived and stayed alive: a normal call
+    // through the same server still succeeds.
+    let mut host = host(&server.base());
+    let response = evaluate(&mut host).expect("listener still serves");
+    assert_eq!(response.model, "jev-latest");
+
     let recorded = server.recorded.lock().expect("recorded lock");
-    assert!(recorded.is_empty(), "no upstream request may be sent");
+    assert_eq!(recorded.len(), 2, "both connections were recorded");
+    assert!(!recorded[0].complete, "first body was truncated");
+    assert_eq!(recorded[0].body, r#"{"model":"jev","#);
+    assert!(recorded[1].complete);
 }
 
 #[test]
