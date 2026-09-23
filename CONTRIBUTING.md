@@ -92,10 +92,13 @@ only when you change the TypeSafe adapter, and keep the key out of the
 repository. The shared assertions stay strict for the local backends. Four
 checks relax for `typesafe` alone, because the adapter forwards what the hosted
 API returns: the catalogue may list more than one model, the answer names the
-resolved upstream model instead of the requested alias, choice probabilities
-keep the upstream label order, and the usage counters report real output
-tokens. Score probabilities, the legend, the unknown-model 404 and every
-numeric bound stay identical for all backends. The float-state leg follows the
+model the API reports and not necessarily the requested alias, choice
+probabilities keep the upstream label order, and the usage counters may report
+nonzero output tokens. For the last two the smoke pins the shape, not the
+value: SystemOne forwards both and promises nothing about either, so a check on
+the value would gate SystemOne on a provider promise. Score probabilities, the
+legend, the unknown-model 404 and every numeric bound stay identical for all
+backends. The float-state leg follows the
 adapter: OpenJev rejects float state values with a 422, and Laya, GLiNER2 and
 TypeSafe accept them.
 

@@ -21,7 +21,7 @@ use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use systemone_core::{
-    Backend, BackendDescription, BackendId, CallContext, Capabilities, DecisionHost,
+    Answer, Backend, BackendDescription, BackendId, CallContext, Capabilities, DecisionHost,
     DecisionRequest, DecisionResponse, HostError, ModelIdentity, Primitive, ProviderKind,
 };
 use systemone_http::wire::{self, WireError};
@@ -34,9 +34,16 @@ const SYSTEMONE_PATH: &str = "/v1/systemone";
 const MODELS_PATH: &str = "/v1/models";
 /// Model used when the backend sets none.
 pub const DEFAULT_MODEL: &str = "jev-latest";
-/// Upstream distributions must already be normalized within this tolerance;
-/// a hosted passthrough never renormalizes them.
-const DISTRIBUTION_TOLERANCE: f64 = 1e-6;
+/// Half of one Jev wire step. Upstream probabilities arrive at wire
+/// precision: two decimals, each entry rounded on its own (see
+/// [`wire::round_wire`]). The entries of one distribution therefore need
+/// not sum to exactly one, so the normalization check runs at the same
+/// precision as the numbers it reads. A hosted passthrough never
+/// renormalizes them; it only refuses a distribution that misses by more
+/// than the rounding can explain.
+const WIRE_ROUNDING_BOUND: f64 = 0.005;
+/// Slack for the binary representation of the bound itself.
+const TOLERANCE_EPSILON: f64 = 1e-9;
 /// Upstream timeout used when the caller set no deadline.
 const DEFAULT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(120);
 /// Longest upstream error message passed through to callers.
@@ -101,9 +108,22 @@ impl TypesafeBackend {
         &self,
         base_url: &str,
     ) -> Result<Box<dyn DecisionHost>, HostError> {
-        // The key is read through `std::env::var` (never removed), and
-        // tests drive `load_with_key` instead of mutating the environment.
-        self.load_with_key(base_url, std::env::var(&self.api_key_env).ok())
+        // The key is read from the environment (never removed), and tests
+        // drive `load_with_key` instead of mutating the environment.
+        self.load_with_key(base_url, self.resolve_key())
+    }
+
+    /// Read the credential named by `api_key_env`.
+    ///
+    /// `None` means the variable is absent. A value that is not valid
+    /// UTF-8 cannot carry a bearer token, so it reads as an unusable value
+    /// rather than an absent one; the two report different reasons.
+    fn resolve_key(&self) -> Option<String> {
+        match std::env::var(&self.api_key_env) {
+            Ok(key) => Some(key),
+            Err(std::env::VarError::NotUnicode(_)) => Some(String::new()),
+            Err(std::env::VarError::NotPresent) => None,
+        }
     }
 
     /// Why this backend cannot serve a request right now.
@@ -115,7 +135,7 @@ impl TypesafeBackend {
     /// load. Reachability of the API is not checked: a health probe would
     /// be a billed request.
     fn unavailable_reason(&self) -> Option<String> {
-        self.unavailable_reason_for(std::env::var(&self.api_key_env).ok().as_deref())
+        self.unavailable_reason_for(self.resolve_key().as_deref())
     }
 
     /// Availability for an already-resolved credential. Tests use this so
@@ -124,7 +144,7 @@ impl TypesafeBackend {
         match api_key {
             Some(key) if !key.trim().is_empty() => None,
             Some(_) => Some(format!(
-                "environment variable {} is set but empty",
+                "environment variable {} is set but holds no usable key",
                 self.api_key_env
             )),
             None => Some(format!(
@@ -136,7 +156,12 @@ impl TypesafeBackend {
 
     /// Load with the credential supplied by the caller, so tests never
     /// mutate the environment. `None` means "unset", `Some("")` means
-    /// "set but empty"; both are rejected.
+    /// "set but unusable"; both are rejected.
+    ///
+    /// A missing credential is an unmet precondition, not a malformed
+    /// configuration, so it fails the way the local kinds fail a missing
+    /// build feature or model directory: [`HostError::unavailable`] with
+    /// the reason `s1 backends` already prints.
     pub(crate) fn load_with_key(
         &self,
         base_url: &str,
@@ -145,18 +170,15 @@ impl TypesafeBackend {
         let base = Url::parse(base_url)
             .map_err(|error| HostError::validation(format!("invalid base URL: {error}")))?;
         RemoteTransport::validate_base_url(&base)?;
-        let api_key = api_key.ok_or_else(|| {
-            HostError::validation(format!(
-                "environment variable {} (backends.{}.settings.api_key_env) is not set; export the TypeSafe API key",
-                self.api_key_env, self.id
-            ))
-        })?;
-        if api_key.trim().is_empty() {
-            return Err(HostError::validation(format!(
-                "environment variable {} is set but empty",
-                self.api_key_env
-            )));
-        }
+        let api_key = match api_key {
+            Some(key) if self.unavailable_reason_for(Some(&key)).is_none() => key,
+            unusable => {
+                return Err(HostError::unavailable(
+                    self.unavailable_reason_for(unusable.as_deref())
+                        .unwrap_or_else(|| "typesafe backend unavailable".to_owned()),
+                ));
+            }
+        };
         let transport = RemoteTransport::new()?;
         Ok(Box::new(TypesafeHost::new(
             transport,
@@ -276,11 +298,11 @@ impl TypesafeHost {
         Ok(remaining)
     }
 
-    fn unreachable(error: RemoteError) -> HostError {
+    fn unreachable(&self, error: RemoteError) -> HostError {
         match error {
-            RemoteError::Unreachable(message) => {
-                HostError::unavailable(format!("TypeSafe API unreachable: {message}"))
-            }
+            RemoteError::Unreachable(message) => HostError::unavailable(
+                self.sanitize(&format!("TypeSafe API unreachable: {message}")),
+            ),
             other => unreachable!("caller handled {other:?} first"),
         }
     }
@@ -396,7 +418,7 @@ impl TypesafeHost {
                     )),
                 });
             }
-            Err(other) => return Err(Self::unreachable(other)),
+            Err(other) => return Err(self.unreachable(other)),
         };
         if !(200..300).contains(&reply.status) {
             return Err(self.upstream_error(&reply));
@@ -444,7 +466,7 @@ impl DecisionHost for TypesafeHost {
                         .sanitize(&format!("upstream response exceeded the {cap}-byte cap")),
                 });
             }
-            Err(other) => return Err(Self::unreachable(other)),
+            Err(other) => return Err(self.unreachable(other)),
         };
         if !(200..300).contains(&reply.status) {
             return Err(self.upstream_error(&reply));
@@ -452,7 +474,7 @@ impl DecisionHost for TypesafeHost {
         let response = wire::parse_response(&reply.body)
             .map_err(|error| self.invalid_body(reply.status, &error.message))?;
         response
-            .validate(DISTRIBUTION_TOLERANCE)
+            .validate(distribution_tolerance(&response))
             .map_err(|error| self.invalid_body(reply.status, &error.to_string()))?;
         Ok(response)
     }
@@ -461,6 +483,28 @@ impl DecisionHost for TypesafeHost {
         // The blocking client needs no teardown.
         Ok(())
     }
+}
+
+/// Sum tolerance for one upstream response.
+///
+/// The upstream reports probabilities at Jev wire precision, so a
+/// distribution of `n` entries can miss one by up to `n` half steps. The
+/// widest distribution in the response sets the bound for all of them; a
+/// stricter bound would refuse a correct body that SystemOne already paid
+/// for, and SystemOne must never repair it instead.
+fn distribution_tolerance(response: &DecisionResponse) -> f64 {
+    let widest = response
+        .answers
+        .iter()
+        .map(|(_, answer)| match answer {
+            Answer::Choice(choice) => choice.probabilities.len(),
+            // A noul distribution is `[p, 1 - p]`: one reported value.
+            Answer::Noul(_) => 1,
+            Answer::Score(score) => score.probabilities.len(),
+        })
+        .max()
+        .unwrap_or(1);
+    widest as f64 * WIRE_ROUNDING_BOUND + TOLERANCE_EPSILON
 }
 
 /// Parse the TypeSafe `/v1/models` catalogue body: an array of objects with

@@ -110,8 +110,8 @@ probability(urgency.confidence);
 distribution(urgency.probabilities, ["0", "1", "2"]);
 assert.ok(Number.isSafeInteger(result.usage.input_tokens) && result.usage.input_tokens > 0);
 if (hosted) {
-  // The hosted API counts the tokens it generates and SystemOne forwards the
-  // counters; a local backend emits none.
+  // SystemOne forwards the counter the hosted API reported, so this leg pins
+  // its shape and not its value; a local backend emits none.
   assert.ok(Number.isSafeInteger(result.usage.output_tokens) && result.usage.output_tokens >= 0);
 } else {
   assert.equal(result.usage.output_tokens, 0);

@@ -94,8 +94,9 @@ coverage.
 | `openrouter` | Hosted Jev through OpenRouter | Planned |
 
 Enable only the instances you need. Disabled local backends do not load
-weights; disabled remote backends do not read credentials. There is **no
-silent local-to-cloud fallback**.
+weights; disabled remote backends send no credential anywhere. `s1 backends`
+only reads whether the named variable holds a value, and never prints it.
+There is **no silent local-to-cloud fallback**.
 
 ### Built with
 
@@ -512,6 +513,26 @@ A one-option Choice is answered deterministically. Confidence is the
 normalized margin `(max − 1/n)/(1 − 1/n)`. JSON state is rendered as compact
 JSON; the model does not weigh numeric fields well. Truncation by the
 checkpoint's word cap is disclosed in `x-systemone-truncation`.
+
+A TypeSafe instance needs no build feature and no local files. It calls the
+hosted API at `https://api.typesafe.ai`, which is fixed in code; no setting
+changes the destination:
+
+```toml
+[backends.cloud-typesafe]
+kind = "typesafe"
+enabled = true
+model = "jev-latest"
+
+[backends.cloud-typesafe.settings]
+api_key_env = "TYPESAFE_API_KEY"
+```
+
+The key is read from that environment variable when the server starts; it
+never lives in configuration. Answers, usage counters, model identity and
+label order arrive as the API reported them. SystemOne validates the body
+and refuses a corrupt one; it never repairs or renormalizes it. One request
+is one upstream call: no retries and no fallback.
 
 ## Models
 

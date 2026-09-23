@@ -522,10 +522,10 @@ fn load_requires_environment_key() {
     let base_url = "http://127.0.0.1:9"; // never contacted
 
     // Variable unset: load fails without contacting the network.
-    assert_validation_error(backend.load_with_key(base_url, None));
+    assert_unavailable(backend.load_with_key(base_url, None));
 
     // Variable empty: same.
-    assert_validation_error(backend.load_with_key(base_url, Some(String::new())));
+    assert_unavailable(backend.load_with_key(base_url, Some(String::new())));
 
     // A real key loads a host against a loopback base URL.
     let host = backend
@@ -552,23 +552,25 @@ fn availability_reports_the_missing_credential() {
     let empty = backend
         .unavailable_reason_for(Some("  "))
         .expect("empty key is not available");
-    assert!(empty.contains("set but empty"), "got {empty}");
+    assert!(empty.contains("set but holds no usable key"), "got {empty}");
 
     // The reason repeats what `load` would say, so the two never disagree.
+    // A missing precondition is `Unavailable`, as it is for the local
+    // kinds; it is not an operator configuration error.
     let Err(load_error) = backend.load_with_key("http://127.0.0.1:9", None) else {
         panic!("load must refuse a missing credential");
     };
-    let HostError::Validation(message) = load_error else {
-        panic!("expected a validation error, got {load_error:?}");
+    let HostError::Unavailable(message) = load_error else {
+        panic!("expected an unavailable error, got {load_error:?}");
     };
     assert_eq!(message, unset);
 }
 
-fn assert_validation_error(result: Result<Box<dyn systemone_core::DecisionHost>, HostError>) {
+fn assert_unavailable(result: Result<Box<dyn systemone_core::DecisionHost>, HostError>) {
     match result {
-        Err(HostError::Validation(_)) => {}
-        Err(other) => panic!("expected validation error, got {other:?}"),
-        Ok(_) => panic!("expected validation error, load unexpectedly succeeded"),
+        Err(HostError::Unavailable(_)) => {}
+        Err(other) => panic!("expected unavailable error, got {other:?}"),
+        Ok(_) => panic!("expected unavailable error, load unexpectedly succeeded"),
     }
 }
 
@@ -659,6 +661,42 @@ fn floats_in_state_are_forwarded_unchanged() {
         serde_json::json!({"nested":{"count":1.5},"ratios":[0.25]}),
         "state must reach the upstream byte-for-byte"
     );
+}
+
+/// The upstream reports probabilities at Jev wire precision: two
+/// decimals, each entry rounded on its own. Three such entries can sum to
+/// 0.99. That body is correct, and SystemOne already paid for it, so the
+/// normalization check reads it at the precision it arrives in. A sum
+/// that misses by more than the rounding explains still fails; SystemOne
+/// never renormalizes either one.
+#[test]
+fn wire_rounded_distributions_are_accepted_but_broken_ones_are_not() {
+    let rounded = r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.33,"beta":0.33,"gamma":0.33},"confidence":0.5}}}"#;
+    let server = MockServer::start(Script::Reply(200, rounded.to_owned()));
+    let mut rounded_host = host(&server.base());
+    let response = evaluate(&mut rounded_host).expect("a wire-rounded body is not corrupt");
+    let systemone_core::Answer::Choice(choice) = &response.answers[0].1 else {
+        panic!("expected a choice answer");
+    };
+    // Passed through as reported: still 0.33 each, still summing to 0.99.
+    assert_eq!(
+        choice.probabilities,
+        vec![
+            ("alpha".to_owned(), 0.33),
+            ("beta".to_owned(), 0.33),
+            ("gamma".to_owned(), 0.33)
+        ]
+    );
+
+    let broken = r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.60,"beta":0.25},"confidence":0.5}}}"#;
+    let broken_server = MockServer::start(Script::Reply(200, broken.to_owned()));
+    let mut broken_host = host(&broken_server.base());
+    let error = evaluate(&mut broken_host).expect_err("0.85 is not rounding drift");
+    let HostError::Upstream { status, code, .. } = &error else {
+        panic!("expected HostError::Upstream, got {error:?}");
+    };
+    assert_eq!(*status, Some(200));
+    assert_eq!(code.as_deref(), Some("invalid_upstream_body"));
 }
 
 #[test]

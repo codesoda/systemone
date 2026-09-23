@@ -636,6 +636,7 @@ struct BuildFeatures {
     openjev: &'static str,
     laya: &'static str,
     gliner2: &'static str,
+    typesafe: &'static str,
 }
 
 pub fn backends<W: Write>(resolved: &Resolved, stdout: &mut W) -> Result<(), CliError> {
@@ -651,6 +652,7 @@ pub fn backends<W: Write>(resolved: &Resolved, stdout: &mut W) -> Result<(), Cli
             openjev: systemone_openjev::compiled_feature(),
             laya: systemone_laya::compiled_feature(),
             gliner2: systemone_gliner2::compiled_feature(),
+            typesafe: systemone_remote::compiled_feature(),
         },
         backends: configured.iter().map(backends::listing).collect(),
     };

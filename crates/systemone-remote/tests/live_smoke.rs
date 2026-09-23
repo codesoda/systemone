@@ -1,8 +1,9 @@
 //! Opt-in, spend-bounded live smoke test for the TypeSafe adapter.
 //!
-//! Not run by default. This test sends one real request to
-//! `https://api.typesafe.ai/v1/systemone` and therefore spends money. It
-//! runs only when both gates are set:
+//! Not run by default. This test makes two real calls to
+//! `https://api.typesafe.ai`: one `GET /v1/models` for the catalogue and
+//! one billed `POST /v1/systemone`. It therefore spends money, and runs
+//! only when both gates are set:
 //!
 //! ```sh
 //! TYPESAFE_API_KEY=... \

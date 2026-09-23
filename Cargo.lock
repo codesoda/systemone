@@ -3801,7 +3801,6 @@ dependencies = [
  "serde_json",
  "systemone-core",
  "systemone-http",
- "tracing",
 ]
 
 [[package]]

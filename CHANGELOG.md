@@ -25,7 +25,16 @@ workflow.
   not a string, and reports itself unavailable in `s1 backends` when the
   configured API-key environment variable is unset or empty. Availability is
   credential-scoped only; the API is never probed, because a health request
-  would be billed.
+  would be billed. A missing credential fails `load` as unavailable, the way
+  a missing build feature or model directory does for the local kinds, and an
+  environment value that is not valid UTF-8 reports as set-but-unusable
+  instead of unset. Upstream distributions are checked at the precision they
+  arrive in (two decimals per entry), so a correct body that sums to 0.99 is
+  accepted, not refused after it was billed; SystemOne still never
+  renormalizes. `s1 backends` and `s1 --version` report the kind in their
+  `build` map, because a hosted adapter is always linked.
+- `examples/systemone.config.toml` and the README Configuration section show
+  a `typesafe` instance.
 - Strict Jev response parsing in `systemone-http::wire` for hosted backends.
   Unknown top-level and answer fields are ignored upstream extensions, which
   includes a `confidence` on a `noul` answer, because the neutral answer has

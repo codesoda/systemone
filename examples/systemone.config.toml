@@ -18,6 +18,21 @@ threads = 4
 # Opt in only when a Metal-enabled build is available on Apple Silicon:
 # device = "metal"
 
+# TypeSafe: the hosted Jev API at https://api.typesafe.ai. No build feature
+# is needed. The key is read at startup from the named environment variable;
+# it never lives in this file. `s1 backends` reports the instance
+# unavailable while that variable is unset or empty, and never probes the
+# API, because a probe request is billed.
+[backends.cloud-typesafe]
+kind = "typesafe"
+enabled = false
+model = "jev-latest"
+
+[backends.cloud-typesafe.settings]
+api_key_env = "TYPESAFE_API_KEY"
+
+# The two gateway kinds below are planned. A build refuses them today with
+# "the adapter is not implemented in this build".
 [backends.cloud-vercel]
 kind = "vercel"
 enabled = false

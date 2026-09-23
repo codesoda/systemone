@@ -8,12 +8,22 @@
 //! intermediary.
 //!
 //! Hosted passthroughs block on their own HTTP client inside `evaluate`,
-//! which the core host contract permits. Base URLs are fixed in typed
-//! configuration; a request can never choose the upstream it is forwarded
-//! to.
+//! which the core host contract permits. Each adapter holds its base URL
+//! as a code constant; neither a request nor operator configuration can
+//! choose the upstream it is forwarded to.
 
 pub mod transport;
 pub mod typesafe;
+
+/// How this build links the hosted adapters.
+///
+/// A hosted passthrough carries no inference runtime, so it needs no build
+/// feature and is always linked. `s1 backends` and `s1 --version` report
+/// this beside the local kinds, which can report `backend-disabled`.
+#[must_use]
+pub const fn compiled_feature() -> &'static str {
+    "hosted"
+}
 
 #[cfg(test)]
 mod typesafe_tests;
