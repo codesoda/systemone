@@ -19,6 +19,10 @@ use systemone_core::{
 /// Maximum nesting depth accepted on the wire.
 pub const MAX_JSON_DEPTH: usize = 64;
 
+/// Maximum length of an upstream `id` kept as the provider request id. A
+/// longer id is dropped, because it travels in a response header.
+pub const MAX_PROVIDER_REQUEST_ID_BYTES: usize = 256;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WireError {
     /// `invalid_json` or `validation_error`.
@@ -480,8 +484,11 @@ fn render_question(question: &Question) -> Value {
 /// Parse a Jev-compatible response body into a neutral
 /// [`DecisionResponse`]. Structure is strict; unknown top-level and answer
 /// fields are permitted upstream extensions and ignored, except `id`, which
-/// is captured as the provider request id. Range and normalization checks
-/// stay with the host, which validates before returning.
+/// is captured as the provider request id. An `id` longer than
+/// [`MAX_PROVIDER_REQUEST_ID_BYTES`] is dropped instead of rejected: the
+/// body is already paid for, and a truncated id would name a request that
+/// does not exist. Range and normalization checks stay with the host, which
+/// validates before returning.
 pub fn parse_response(bytes: &[u8]) -> Result<DecisionResponse, WireError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| WireError::bad_json("response body must be valid UTF-8 JSON"))?;
@@ -497,11 +504,11 @@ pub fn parse_response(bytes: &[u8]) -> Result<DecisionResponse, WireError> {
         None => return Err(WireError::validation("response.model is required")),
     };
     let provider_request_id = match response.shift_remove("id") {
-        Some(Value::String(id)) if id.len() <= 256 => Some(id),
+        Some(Value::String(id)) => (id.len() <= MAX_PROVIDER_REQUEST_ID_BYTES).then_some(id),
         None | Some(Value::Null) => None,
         Some(_) => {
             return Err(WireError::validation(
-                "response.id must be a string when provided",
+                "response.id must be a string or null when provided",
             ));
         }
     };
@@ -585,12 +592,12 @@ fn parse_answer(id: &str, value: Value) -> Result<Answer, WireError> {
         }
         None => return Err(WireError::validation(format!("{path}.type is required"))),
     };
-    let confidence = optional_confidence(
-        answer.shift_remove("confidence"),
-        &format!("{path}.confidence"),
-    )?;
     match kind.as_str() {
         "choice" => {
+            let confidence = optional_confidence(
+                answer.shift_remove("confidence"),
+                &format!("{path}.confidence"),
+            )?;
             let choice = match answer.shift_remove("choice") {
                 Some(Value::String(choice)) => choice,
                 Some(_) => {
@@ -633,79 +640,116 @@ fn parse_answer(id: &str, value: Value) -> Result<Answer, WireError> {
                     )));
                 }
             };
+            // A noul answer has no confidence field, so an upstream
+            // `confidence` here is an ignored extension like any other
+            // unknown answer field. It is not read and not rejected.
             Ok(Answer::Noul(systemone_core::NoulAnswer {
                 probability_true,
             }))
         }
-        "score" => {
-            let score = match answer.shift_remove("score") {
-                Some(value) => require_number(&value, &format!("{path}.score"))?,
-                None => {
-                    return Err(WireError::validation(format!(
-                        "{path}.score is required for score"
-                    )));
-                }
-            };
-            let legend = match answer.shift_remove("legend") {
-                Some(value) => into_object(value, &format!("{path}.legend"))?,
-                None => {
-                    return Err(WireError::validation(format!(
-                        "{path}.legend is required for score"
-                    )));
-                }
-            };
-            let probabilities = match answer.shift_remove("probabilities") {
-                Some(value) => into_object(value, &format!("{path}.probabilities"))?,
-                None => {
-                    return Err(WireError::validation(format!(
-                        "{path}.probabilities is required for score"
-                    )));
-                }
-            };
-            let mut levels: Vec<(u64, Value)> = Vec::with_capacity(legend.len());
-            for (index, description) in legend {
-                let index = index.parse::<u64>().map_err(|_| {
-                    WireError::validation(format!("{path}.legend keys must be level indexes"))
-                })?;
-                levels.push((index, description));
-            }
-            levels.sort_by_key(|(index, _)| *index);
-            let mut numbers: Vec<(u64, f64)> = Vec::with_capacity(probabilities.len());
-            for (index, probability) in probabilities {
-                let index = index.parse::<u64>().map_err(|_| {
-                    WireError::validation(format!(
-                        "{path}.probabilities keys must be level indexes"
-                    ))
-                })?;
-                let number =
-                    require_number(&probability, &format!("{path}.probabilities.{index}"))?;
-                numbers.push((index, number));
-            }
-            numbers.sort_by_key(|(index, _)| *index);
-            if levels.len() != numbers.len()
-                || levels
-                    .iter()
-                    .zip(&numbers)
-                    .any(|((left, _), (right, _))| left != right)
-            {
-                return Err(WireError::validation(format!(
-                    "{path}.legend and probabilities must cover the same levels"
-                )));
-            }
-            Ok(Answer::Score(systemone_core::ScoreAnswer {
-                score,
-                probabilities: numbers.into_iter().map(|(_, number)| number).collect(),
-                confidence,
-                legend: levels
-                    .into_iter()
-                    .map(|(_, description)| description)
-                    .collect(),
-            }))
-        }
+        "score" => parse_score_answer(&path, answer),
         _ => Err(WireError::validation(format!(
             "{path}.type must be choice, noul, or score"
         ))),
     }
+}
+
+fn parse_score_answer(path: &str, mut answer: Map<String, Value>) -> Result<Answer, WireError> {
+    let confidence = optional_confidence(
+        answer.shift_remove("confidence"),
+        &format!("{path}.confidence"),
+    )?;
+    let score = match answer.shift_remove("score") {
+        Some(value) => require_number(&value, &format!("{path}.score"))?,
+        None => {
+            return Err(WireError::validation(format!(
+                "{path}.score is required for score"
+            )));
+        }
+    };
+    let legend = match answer.shift_remove("legend") {
+        Some(value) => into_object(value, &format!("{path}.legend"))?,
+        None => {
+            return Err(WireError::validation(format!(
+                "{path}.legend is required for score"
+            )));
+        }
+    };
+    let probabilities = match answer.shift_remove("probabilities") {
+        Some(value) => into_object(value, &format!("{path}.probabilities"))?,
+        None => {
+            return Err(WireError::validation(format!(
+                "{path}.probabilities is required for score"
+            )));
+        }
+    };
+    let legend_path = format!("{path}.legend");
+    let mut levels: Vec<(u64, Value)> = Vec::with_capacity(legend.len());
+    for (index, description) in legend {
+        levels.push((parse_level_index(&index, &legend_path)?, description));
+    }
+    levels.sort_by_key(|(index, _)| *index);
+    require_contiguous_levels(levels.iter().map(|(index, _)| *index), &legend_path)?;
+    let probabilities_path = format!("{path}.probabilities");
+    let mut numbers: Vec<(u64, f64)> = Vec::with_capacity(probabilities.len());
+    for (index, probability) in probabilities {
+        let index = parse_level_index(&index, &probabilities_path)?;
+        let number = require_number(&probability, &format!("{probabilities_path}.{index}"))?;
+        numbers.push((index, number));
+    }
+    numbers.sort_by_key(|(index, _)| *index);
+    require_contiguous_levels(numbers.iter().map(|(index, _)| *index), &probabilities_path)?;
+    if levels.len() != numbers.len() {
+        return Err(WireError::validation(format!(
+            "{path}.legend and probabilities must cover the same levels"
+        )));
+    }
+    Ok(Answer::Score(systemone_core::ScoreAnswer {
+        score,
+        probabilities: numbers.into_iter().map(|(_, number)| number).collect(),
+        confidence,
+        legend: levels
+            .into_iter()
+            .map(|(_, description)| description)
+            .collect(),
+    }))
+}
+
+/// Parse one score level key. A key is a canonical zero-based decimal
+/// index: ASCII digits only, no sign, no space, and no leading zero.
+/// `"01"` is not the same key as `"1"` on the wire, so it is refused
+/// instead of being folded into level 1.
+fn parse_level_index(key: &str, path: &str) -> Result<u64, WireError> {
+    let canonical = !key.is_empty()
+        && key.bytes().all(|byte| byte.is_ascii_digit())
+        && (key == "0" || !key.starts_with('0'));
+    if !canonical {
+        return Err(WireError::validation(format!(
+            "{path} keys must be contiguous zero-based level indexes"
+        )));
+    }
+    key.parse::<u64>().map_err(|_| {
+        WireError::validation(format!(
+            "{path} keys must be contiguous zero-based level indexes"
+        ))
+    })
+}
+
+/// Require sorted level indexes to be exactly `0..n-1`. Sparse keys such as
+/// `{"0","2"}` name a scale that the positional vectors cannot hold, so the
+/// parser refuses them instead of renumbering the levels.
+fn require_contiguous_levels(
+    indexes: impl Iterator<Item = u64>,
+    path: &str,
+) -> Result<(), WireError> {
+    for (position, index) in indexes.enumerate() {
+        if index != position as u64 {
+            return Err(WireError::validation(format!(
+                "{path} keys must be contiguous zero-based level indexes"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -865,7 +909,8 @@ mod tests {
                 "same levels",
             ),
             (br#"{"model":"m","answers":{},"usage":{"input_tokens":-1}}"#, "nonnegative integer"),
-            (br#"{"model":"m","answers":{},"id":{}}"#, "string"),
+            (br#"{"model":"m","answers":{},"id":{}}"#, "must be a string or null"),
+            (br#"{"model":"m","answers":{},"id":7}"#, "must be a string or null"),
             (br#"{"model":"m","answers":[]}"#, "object"),
         ] {
             let error = parse_response(body).unwrap_err();
@@ -873,6 +918,116 @@ mod tests {
             assert_eq!(error.error_type, "validation_error");
         }
         assert!(parse_response(b"\xff").is_err());
+    }
+
+    #[test]
+    fn parse_response_drops_an_over_long_id_and_keeps_the_body() {
+        let long = "i".repeat(MAX_PROVIDER_REQUEST_ID_BYTES + 1);
+        let body = format!(
+            r#"{{"id":"{long}","model":"m","answers":{{"q":{{"type":"noul","noul":1.0}}}}}}"#
+        );
+        let response = parse_response(body.as_bytes()).unwrap();
+        assert_eq!(response.diagnostics.provider_request_id, None);
+        assert_eq!(response.answers.len(), 1);
+        // The longest accepted id still arrives unchanged.
+        let kept = "i".repeat(MAX_PROVIDER_REQUEST_ID_BYTES);
+        let body = format!(
+            r#"{{"id":"{kept}","model":"m","answers":{{"q":{{"type":"noul","noul":1.0}}}}}}"#
+        );
+        let response = parse_response(body.as_bytes()).unwrap();
+        assert_eq!(
+            response.diagnostics.provider_request_id.as_deref(),
+            Some(kept.as_str())
+        );
+        // A non-string id is still a structural error, and the message
+        // names the real problem.
+        let error = parse_response(br#"{"id":5,"model":"m","answers":{}}"#).unwrap_err();
+        assert_eq!(
+            error.message,
+            "response.id must be a string or null when provided"
+        );
+    }
+
+    #[test]
+    fn parse_response_requires_contiguous_zero_based_score_keys() {
+        let answer = |legend: &str, probabilities: &str| {
+            format!(
+                r#"{{"model":"m","answers":{{"s":{{"type":"score","score":1,"legend":{legend},"probabilities":{probabilities}}}}}}}"#
+            )
+        };
+        for (legend, probabilities) in [
+            // Sparse keys name a scale the positional vectors cannot hold.
+            (r#"{"0":"low","2":"high"}"#, r#"{"0":0.4,"2":0.6}"#),
+            // Non-canonical decimals are not level keys.
+            (r#"{"0":"low","01":"high"}"#, r#"{"0":0.4,"01":0.6}"#),
+            (r#"{"0":"low","+1":"high"}"#, r#"{"0":0.4,"+1":0.6}"#),
+            (r#"{"0":"low"," 1":"high"}"#, r#"{"0":0.4," 1":0.6}"#),
+            (r#"{"0":"low","1x":"high"}"#, r#"{"0":0.4,"1x":0.6}"#),
+            // One-based keys are renumbering, not a scale.
+            (r#"{"1":"low","2":"high"}"#, r#"{"1":0.4,"2":0.6}"#),
+            // A sparse probabilities map alone is refused too.
+            (r#"{"0":"low","1":"high"}"#, r#"{"0":0.4,"2":0.6}"#),
+        ] {
+            let body = answer(legend, probabilities);
+            let error = parse_response(body.as_bytes()).unwrap_err();
+            assert_eq!(error.error_type, "validation_error");
+            assert!(
+                error
+                    .message
+                    .contains("contiguous zero-based level indexes"),
+                "{} for {body}",
+                error.message
+            );
+        }
+        // Contiguous keys in any order stay accepted and keep level order.
+        let body = answer(
+            r#"{"2":"high","0":"low","1":"mid"}"#,
+            r#"{"1":0.2,"2":0.6,"0":0.2}"#,
+        );
+        let response = parse_response(body.as_bytes()).unwrap();
+        match &response.answers[0].1 {
+            Answer::Score(score) => {
+                assert_eq!(score.legend, vec!["low", "mid", "high"]);
+                assert_eq!(score.probabilities, vec![0.2, 0.2, 0.6]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // Matching key sets of different sizes keep the old message.
+        let body = answer(r#"{"0":"low","1":"high"}"#, r#"{"0":1.0}"#);
+        let error = parse_response(body.as_bytes()).unwrap_err();
+        assert!(
+            error.message.contains("must cover the same levels"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn parse_response_ignores_confidence_on_noul_like_any_other_extension() {
+        // `NoulAnswer` has no confidence field. A numeric confidence is
+        // dropped, so a non-numeric one must not reject the answer either.
+        for confidence in ["0.9", r#""high""#, "null", "{}", "[1]"] {
+            let body = format!(
+                r#"{{"model":"m","answers":{{"n":{{"type":"noul","noul":0.25,"confidence":{confidence},"extra":1}}}}}}"#
+            );
+            let response = parse_response(body.as_bytes()).unwrap();
+            match &response.answers[0].1 {
+                Answer::Noul(noul) => assert_eq!(noul.probability_true, 0.25),
+                other => panic!("{other:?}"),
+            }
+        }
+        // Choice and score still validate confidence, because they keep it.
+        for body in [
+            br#"{"model":"m","answers":{"c":{"type":"choice","choice":"a","confidence":"high","probabilities":{"a":1.0}}}}"#.as_slice(),
+            br#"{"model":"m","answers":{"s":{"type":"score","score":0,"confidence":"high","legend":{"0":"low","1":"high"},"probabilities":{"0":0.5,"1":0.5}}}}"#,
+        ] {
+            let error = parse_response(body).unwrap_err();
+            assert!(
+                error.message.contains("confidence must be a number"),
+                "{}",
+                error.message
+            );
+        }
     }
 
     #[test]
