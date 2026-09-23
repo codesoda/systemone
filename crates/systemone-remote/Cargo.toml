@@ -14,5 +14,12 @@ serde_json.workspace = true
 systemone-core.workspace = true
 systemone-http.workspace = true
 
+[dev-dependencies]
+# The service-level test drives the real Axum router over a registry that
+# holds a TypeSafe host, so `/v1/models` is checked on the route callers use.
+axum.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower.workspace = true
+
 [lints]
 workspace = true

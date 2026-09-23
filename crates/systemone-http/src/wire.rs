@@ -6,6 +6,8 @@
 //! documented rules. Rendering rounds every probability to two decimals
 //! without renormalizing, matching the reference SDK fixtures.
 
+use std::collections::HashMap;
+
 use serde::{
     Deserialize,
     de::{self, Deserializer, MapAccess, SeqAccess, Visitor},
@@ -735,6 +737,115 @@ fn parse_level_index(key: &str, path: &str) -> Result<u64, WireError> {
     })
 }
 
+/// Put a parsed response in the key order the request declared.
+///
+/// A hosted upstream chooses its own key order. SystemOne answers in one
+/// order for every backend: `answers` follows the request's question
+/// order, and each choice distribution follows the order the request
+/// declared its labels in. This function moves entries only. It never
+/// changes, adds or drops a value, and it never renormalizes.
+///
+/// The response must answer exactly the questions that were asked, with
+/// exactly the labels that were declared, and with the primitive each
+/// question asked for. A missing, extra, renamed or retyped entry is an
+/// invalid upstream body: the caller refuses it and never repairs it.
+///
+/// Score answers are positional already, so they need no reordering; their
+/// level count is checked by [`DecisionResponse::validate`].
+pub fn align_to_request(
+    response: &mut DecisionResponse,
+    request: &DecisionRequest,
+) -> Result<(), WireError> {
+    let mut supplied = take_unique(
+        std::mem::take(&mut response.answers),
+        "response.answers",
+        "answer",
+    )?;
+    let mut ordered = Vec::with_capacity(request.questions.len());
+    for (id, question) in &request.questions {
+        let mut answer = supplied.remove(id).ok_or_else(|| {
+            WireError::validation(format!(
+                "response.answers has no answer for question {id:?}"
+            ))
+        })?;
+        align_answer(id, question, &mut answer)?;
+        ordered.push((id.clone(), answer));
+    }
+    if let Some(extra) = smallest_key(&supplied) {
+        return Err(WireError::validation(format!(
+            "response.answers has answer {extra:?} for a question the request did not ask"
+        )));
+    }
+    response.answers = ordered;
+    Ok(())
+}
+
+fn align_answer(id: &str, question: &Question, answer: &mut Answer) -> Result<(), WireError> {
+    let path = format!("response.answers.{id:?}");
+    match (question, answer) {
+        (Question::Choice(question), Answer::Choice(answer)) => {
+            let mut supplied = take_unique(
+                std::mem::take(&mut answer.probabilities),
+                &format!("{path}.probabilities"),
+                "label",
+            )?;
+            let mut ordered = Vec::with_capacity(question.criteria.len());
+            for (label, _) in &question.criteria {
+                let probability = supplied.remove(label).ok_or_else(|| {
+                    WireError::validation(format!(
+                        "{path}.probabilities has no entry for the declared label {label:?}"
+                    ))
+                })?;
+                ordered.push((label.clone(), probability));
+            }
+            if let Some(extra) = smallest_key(&supplied) {
+                return Err(WireError::validation(format!(
+                    "{path}.probabilities has label {extra:?}, which the request did not declare"
+                )));
+            }
+            answer.probabilities = ordered;
+            Ok(())
+        }
+        (Question::Noul(_), Answer::Noul(_)) | (Question::Score(_), Answer::Score(_)) => Ok(()),
+        (question, answer) => Err(WireError::validation(format!(
+            "{path}.type is {}, but the request asked {}",
+            answer_primitive(answer),
+            question.primitive().as_str()
+        ))),
+    }
+}
+
+/// Index entries by key. A duplicate key is refused instead of dropping
+/// one of the two values silently.
+fn take_unique<T>(
+    entries: Vec<(String, T)>,
+    path: &str,
+    noun: &str,
+) -> Result<HashMap<String, T>, WireError> {
+    let mut indexed = HashMap::with_capacity(entries.len());
+    for (key, value) in entries {
+        if indexed.insert(key.clone(), value).is_some() {
+            return Err(WireError::validation(format!(
+                "{path} has duplicate {noun} {key:?}"
+            )));
+        }
+    }
+    Ok(indexed)
+}
+
+/// Name one leftover key. The smallest keeps the message deterministic.
+fn smallest_key<T>(entries: &HashMap<String, T>) -> Option<&String> {
+    entries.keys().min()
+}
+
+const fn answer_primitive(answer: &Answer) -> &'static str {
+    match answer {
+        Answer::Choice(_) => "choice",
+        Answer::Noul(_) => "noul",
+        Answer::Score(_) => "score",
+    }
+}
+
 /// Require sorted level indexes to be exactly `0..n-1`. Sparse keys such as
 /// `{"0","2"}` name a scale that the positional vectors cannot hold, so the
 /// parser refuses them instead of renumbering the levels.
@@ -1081,5 +1192,55 @@ mod tests {
         assert!(body["usage"].get("output_tokens").is_none());
         let keys: Vec<_> = body["answers"].as_object().unwrap().keys().collect();
         assert_eq!(keys, ["c", "n", "s"]);
+    }
+
+    /// Key order is normalized; values are not. A response that answers
+    /// other questions or other labels is refused, never reshaped.
+    #[test]
+    fn alignment_reorders_keys_and_refuses_a_different_answer_set() {
+        let request = parse_request(
+            br#"{"state":"s","questions":{
+              "pick":{"type":"choice","criteria":{"alpha":null,"beta":null}},
+              "worth":{"type":"noul"}
+            }}"#,
+        )
+        .unwrap()
+        .request;
+        let upstream = br#"{"model":"m","answers":{
+          "worth":{"type":"noul","noul":0.62},
+          "pick":{"type":"choice","choice":"beta","probabilities":{"beta":0.75,"alpha":0.25}}
+        }}"#;
+
+        let mut response = parse_response(upstream).unwrap();
+        align_to_request(&mut response, &request).unwrap();
+        let answered: Vec<&str> = response.answers.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(answered, ["pick", "worth"]);
+        let Answer::Choice(choice) = &response.answers[0].1 else {
+            panic!("expected a choice answer");
+        };
+        assert_eq!(
+            choice.probabilities,
+            vec![("alpha".to_owned(), 0.25), ("beta".to_owned(), 0.75)]
+        );
+
+        for body in [
+            // A label the request did not declare.
+            br#"{"model":"m","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.5,"gamma":0.5}},"worth":{"type":"noul","noul":0.1}}}"#.as_slice(),
+            // A question the request did not ask.
+            br#"{"model":"m","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.5,"beta":0.5}},"worth":{"type":"noul","noul":0.1},"spare":{"type":"noul","noul":0.1}}}"#,
+            // A missing answer.
+            br#"{"model":"m","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.5,"beta":0.5}}}}"#,
+            // The wrong primitive for a declared question.
+            br#"{"model":"m","answers":{"pick":{"type":"noul","noul":0.5},"worth":{"type":"noul","noul":0.1}}}"#,
+        ] {
+            let mut response = parse_response(body).unwrap();
+            let error = align_to_request(&mut response, &request).unwrap_err();
+            assert_eq!(
+                error.error_type,
+                "validation_error",
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+        }
     }
 }

@@ -5,7 +5,10 @@
 //! fixed in code; a request can never choose its upstream. Responses are
 //! passed through verbatim after strict parsing — SystemOne preserves
 //! upstream answers, usage and model identity, and refuses to repair
-//! corrupt distributions.
+//! corrupt distributions. Only key order is normalized: answers and
+//! choice labels are returned in the order the request declared, as
+//! every other backend does. A body that answers different questions or
+//! different labels is refused, not reordered into shape.
 //!
 //! Requests pass through too. The adapter adds no value restriction of its
 //! own: the upstream owns its request limits, and duplicating them here
@@ -471,7 +474,13 @@ impl DecisionHost for TypesafeHost {
         if !(200..300).contains(&reply.status) {
             return Err(self.upstream_error(&reply));
         }
-        let response = wire::parse_response(&reply.body)
+        let mut response = wire::parse_response(&reply.body)
+            .map_err(|error| self.invalid_body(reply.status, &error.message))?;
+        // The upstream owns its key order; SystemOne owns the one its
+        // callers see. This moves entries into request order and refuses a
+        // body that answers other questions or other labels. Values are
+        // never touched.
+        wire::align_to_request(&mut response, request)
             .map_err(|error| self.invalid_body(reply.status, &error.message))?;
         response
             .validate(distribution_tolerance(&response))

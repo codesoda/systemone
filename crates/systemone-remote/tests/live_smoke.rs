@@ -75,8 +75,24 @@ fn live_typesafe_direct_round_trip() {
         .expect("live evaluate");
     assert!(!response.model.is_empty());
     let answered: Vec<&str> = response.answers.iter().map(|(id, _)| id.as_str()).collect();
-    assert!(answered.contains(&"pick"), "choice answer present");
-    assert!(answered.contains(&"worth"), "noul answer present");
+    assert_eq!(
+        answered,
+        vec!["pick", "worth"],
+        "answers follow request order"
+    );
+    let systemone_core::Answer::Choice(choice) = &response.answers[0].1 else {
+        panic!("expected a choice answer for the choice question");
+    };
+    let labels: Vec<&str> = choice
+        .probabilities
+        .iter()
+        .map(|(label, _)| label.as_str())
+        .collect();
+    assert_eq!(
+        labels,
+        vec!["alpha", "beta"],
+        "choice labels follow the declared order"
+    );
     eprintln!(
         "live smoke ok: model={} questions=2 providers_request_id={:?}",
         response.model, response.diagnostics.provider_request_id

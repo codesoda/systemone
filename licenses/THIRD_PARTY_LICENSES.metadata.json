@@ -1,8 +1,8 @@
 {
   "bundle": "THIRD_PARTY_LICENSES.html",
-  "bundle_sha256": "5408a291f85e842f1158a9ebf9e8b5238f8cccadbb9b3a74302c2fa5fc03267b",
+  "bundle_sha256": "8c54846273292377e4dcdf9ed6c3c494505aecc83d3ced78acc0a2381ee3de17",
   "cargo_about_version": "0.9.2",
-  "cargo_lock_sha256": "5636546d01147db1c54da6e89c0cf4619a5a7124e8aea9bb7ebf35069fb0676d",
+  "cargo_lock_sha256": "42f11758afcbc2f1d0f89b4b0b43013e2a0efc523895a706ae972a7da8a77b6d",
   "features": "systemone-cli/metal systemone-cli/native",
   "license_text_variant_count": 151,
   "llama_cpp_commit": "e79e4bf660e19f2ad851e06c6913f7a8c5852621",

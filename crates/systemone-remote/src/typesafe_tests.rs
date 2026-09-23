@@ -240,9 +240,45 @@ fn upstream_ok() -> String {
     r#"{"id":"resp-7","model":"jev-latest","usage":{"input_tokens":120,"output_tokens":30,"cost":0.0025},"answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.75,"beta":0.25},"confidence":0.5},"worth":{"type":"noul","noul":0.62}}}"#.to_owned()
 }
 
+/// A request with one choice question that declares three labels.
+fn three_label_request() -> DecisionRequest {
+    let body = br#"{"state":"s","questions":{"pick":{"type":"choice","criteria":{"alpha":null,"beta":null,"gamma":null}}}}"#;
+    wire::parse_request(body)
+        .expect("parse three-label request")
+        .request
+}
+
 fn evaluate(host: &mut TypesafeHost) -> Result<DecisionResponse, HostError> {
+    evaluate_with(host, &request())
+}
+
+fn evaluate_with(
+    host: &mut TypesafeHost,
+    request: &DecisionRequest,
+) -> Result<DecisionResponse, HostError> {
     use systemone_core::DecisionHost;
-    host.evaluate(&request(), &context_no_deadline())
+    host.evaluate(request, &context_no_deadline())
+}
+
+/// Evaluate [`request`] against one scripted upstream body.
+fn evaluate_reply(body: &str) -> Result<DecisionResponse, HostError> {
+    let server = MockServer::start(Script::Reply(200, body.to_owned()));
+    let mut host = host(&server.base());
+    evaluate(&mut host)
+}
+
+fn expect_invalid_upstream_body(error: &HostError) -> &str {
+    let HostError::Upstream {
+        status,
+        code,
+        message,
+    } = error
+    else {
+        panic!("expected HostError::Upstream, got {error:?}");
+    };
+    assert_eq!(*status, Some(200));
+    assert_eq!(code.as_deref(), Some("invalid_upstream_body"));
+    message
 }
 
 #[test]
@@ -651,7 +687,8 @@ fn settings_reject_secret_values_and_bad_env_names() {
 fn floats_in_state_are_forwarded_unchanged() {
     let body = br#"{"state":{"nested":{"count":1.5},"ratios":[0.25]},"questions":{"worth":{"type":"noul","criteria":{"true":"it works"}}}}"#;
     let request = wire::parse_request(body).expect("parse").request;
-    let server = MockServer::start(Script::Reply(200, upstream_ok()));
+    let reply = r#"{"model":"jev-latest","answers":{"worth":{"type":"noul","noul":0.62}}}"#;
+    let server = MockServer::start(Script::Reply(200, reply.to_owned()));
     let mut host = host(&server.base());
     systemone_core::DecisionHost::evaluate(&mut host, &request, &context_no_deadline())
         .expect("floats are forwarded, not rejected");
@@ -674,7 +711,8 @@ fn wire_rounded_distributions_are_accepted_but_broken_ones_are_not() {
     let rounded = r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.33,"beta":0.33,"gamma":0.33},"confidence":0.5}}}"#;
     let server = MockServer::start(Script::Reply(200, rounded.to_owned()));
     let mut rounded_host = host(&server.base());
-    let response = evaluate(&mut rounded_host).expect("a wire-rounded body is not corrupt");
+    let response = evaluate_with(&mut rounded_host, &three_label_request())
+        .expect("a wire-rounded body is not corrupt");
     let systemone_core::Answer::Choice(choice) = &response.answers[0].1 else {
         panic!("expected a choice answer");
     };
@@ -688,10 +726,11 @@ fn wire_rounded_distributions_are_accepted_but_broken_ones_are_not() {
         ]
     );
 
-    let broken = r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.60,"beta":0.25},"confidence":0.5}}}"#;
+    let broken = r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.60,"beta":0.25,"gamma":0.00},"confidence":0.5}}}"#;
     let broken_server = MockServer::start(Script::Reply(200, broken.to_owned()));
     let mut broken_host = host(&broken_server.base());
-    let error = evaluate(&mut broken_host).expect_err("0.85 is not rounding drift");
+    let error = evaluate_with(&mut broken_host, &three_label_request())
+        .expect_err("0.85 is not rounding drift");
     let HostError::Upstream { status, code, .. } = &error else {
         panic!("expected HostError::Upstream, got {error:?}");
     };
@@ -798,4 +837,212 @@ fn upstream_detail_array_error_passes_through() {
     assert_eq!(*status, Some(422));
     assert_eq!(code.as_deref(), Some("validation_error"));
     assert!(message.contains("Field required"));
+}
+
+/// SystemOne answers with one key order for every backend. The upstream
+/// reports the labels of this choice question in reverse, and the adapter
+/// returns them in the order the request declared. Only the position
+/// moves: every value is the one the upstream reported.
+#[test]
+fn choice_probabilities_follow_the_declared_label_order() {
+    let reversed = r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"beta":0.25,"alpha":0.75},"confidence":0.5},"worth":{"type":"noul","noul":0.62}}}"#;
+    let response = evaluate_reply(reversed).expect("upstream success");
+    let systemone_core::Answer::Choice(choice) = &response.answers[0].1 else {
+        panic!("expected a choice answer");
+    };
+    assert_eq!(
+        choice.probabilities,
+        vec![("alpha".to_owned(), 0.75), ("beta".to_owned(), 0.25)],
+        "declared order is alpha, beta"
+    );
+    assert_eq!(choice.choice, "alpha");
+    assert_eq!(choice.confidence, Some(0.5));
+}
+
+/// The `answers` object follows the request's question order too.
+#[test]
+fn answers_follow_the_request_question_order() {
+    let swapped = r#"{"model":"jev-latest","answers":{"worth":{"type":"noul","noul":0.62},"pick":{"type":"choice","choice":"beta","probabilities":{"alpha":0.25,"beta":0.75}}}}"#;
+    let response = evaluate_reply(swapped).expect("upstream success");
+    let answered: Vec<&str> = response.answers.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(
+        answered,
+        vec!["pick", "worth"],
+        "request order is pick, worth"
+    );
+    let systemone_core::Answer::Noul(noul) = &response.answers[1].1 else {
+        panic!("expected a noul answer");
+    };
+    assert!((noul.probability_true - 0.62).abs() < 1e-9);
+}
+
+/// Reordering is the only repair SystemOne does. A body that answers other
+/// questions, other labels, or the wrong primitive is refused whole; no
+/// label is invented, dropped or renamed to make it fit.
+#[test]
+fn answer_or_label_set_mismatch_is_an_invalid_upstream_body() {
+    for (case, body) in [
+        (
+            "renamed label",
+            r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.75,"gamma":0.25}},"worth":{"type":"noul","noul":0.62}}}"#,
+        ),
+        (
+            "extra label",
+            r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.5,"beta":0.25,"gamma":0.25}},"worth":{"type":"noul","noul":0.62}}}"#,
+        ),
+        (
+            "missing label",
+            r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":1.0}},"worth":{"type":"noul","noul":0.62}}}"#,
+        ),
+        (
+            "missing answer",
+            r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.75,"beta":0.25}}}}"#,
+        ),
+        (
+            "extra answer",
+            r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.75,"beta":0.25}},"worth":{"type":"noul","noul":0.62},"spare":{"type":"noul","noul":0.1}}}"#,
+        ),
+        (
+            "wrong primitive",
+            r#"{"model":"jev-latest","answers":{"pick":{"type":"noul","noul":0.5},"worth":{"type":"noul","noul":0.62}}}"#,
+        ),
+    ] {
+        let error = evaluate_reply(body).expect_err(case);
+        let message = expect_invalid_upstream_body(&error);
+        assert!(!message.is_empty(), "{case} must say what is wrong");
+    }
+}
+
+/// A pinned instance: the concrete version is the served model and the
+/// upstream alias is accepted as a request selector.
+fn pinned_host(base: &Url) -> TypesafeHost {
+    TypesafeHost::new(
+        RemoteTransport::new().expect("client"),
+        base.clone(),
+        "jev-1.13.0".to_owned(),
+        vec!["jev-latest".to_owned()],
+        TEST_KEY.to_owned(),
+    )
+}
+
+fn pinned_backend() -> TypesafeBackend {
+    TypesafeBackend::new(
+        BackendId::new("hosted").expect("backend id"),
+        Some("jev-1.13.0"),
+        vec!["jev-latest".to_owned()],
+        &TypesafeSettings {
+            api_key_env: "TYPESAFE_API_KEY".to_owned(),
+        },
+    )
+    .expect("backend")
+}
+
+/// A request for the configured alias is sent upstream as the pinned
+/// version, so the upstream answers with the identity `/v1/models`
+/// advertises. The alias never travels; the upstream would otherwise
+/// resolve it to a version of its own choice.
+#[test]
+fn a_configured_alias_is_resolved_to_the_pinned_model_before_the_call() {
+    let upstream = r#"{"model":"jev-1.13.0","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.75,"beta":0.25}},"worth":{"type":"noul","noul":0.62}}}"#;
+    let server = MockServer::start(Script::Reply(200, upstream.to_owned()));
+    let mut host = pinned_host(&server.base());
+    let aliased = DecisionRequest {
+        model: Some("jev-latest".to_owned()),
+        ..request()
+    };
+    let response = evaluate_with(&mut host, &aliased).expect("alias resolves");
+
+    let sent = server.single().json();
+    assert_eq!(
+        sent["model"], "jev-1.13.0",
+        "the alias never leaves SystemOne"
+    );
+    // The upstream identity passes through, and it is the name the
+    // catalogue card carries.
+    assert_eq!(response.model, "jev-1.13.0");
+    assert_eq!(
+        response.model,
+        systemone_core::DecisionHost::capabilities(&host).model.id
+    );
+}
+
+/// `GET /v1/models` serves exactly one card for a TypeSafe instance, named
+/// after the configured model. The upstream catalogue is not consulted:
+/// the base URL below is never contacted.
+#[tokio::test]
+async fn models_route_serves_one_card_named_after_the_configured_model() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request as HttpRequest, StatusCode},
+    };
+    use systemone_http::{AppState, Registry, RegistryEntry, ServeOptions, router};
+    use tower::ServiceExt as _;
+
+    /// Loads a real `TypesafeHost` against a base URL the test chooses.
+    struct MockBaseBackend {
+        inner: TypesafeBackend,
+        base: String,
+    }
+
+    impl Backend for MockBaseBackend {
+        fn id(&self) -> &BackendId {
+            self.inner.id()
+        }
+
+        fn kind(&self) -> systemone_core::ProviderKind {
+            self.inner.kind()
+        }
+
+        fn describe(&self) -> systemone_core::BackendDescription {
+            self.inner.describe()
+        }
+
+        fn load(&self) -> Result<Box<dyn systemone_core::DecisionHost>, HostError> {
+            self.inner
+                .load_with_key(&self.base, Some(TEST_KEY.to_owned()))
+        }
+    }
+
+    let backend = Arc::new(MockBaseBackend {
+        inner: pinned_backend(),
+        // Discard port: a catalogue request would fail loudly.
+        base: "http://127.0.0.1:9".to_owned(),
+    });
+    let registry = Registry::load(
+        vec![RegistryEntry {
+            backend: Arc::clone(&backend) as Arc<dyn Backend>,
+            queue_capacity: 1,
+            max_in_flight: 1,
+        }],
+        vec![backend.describe()],
+        Some(BackendId::new("hosted").expect("backend id")),
+        4,
+    )
+    .expect("registry loads the hosted backend");
+    let options = ServeOptions::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        8080,
+        5,
+        1024,
+        None,
+    )
+    .expect("serve options");
+    let app = router(AppState::new(Arc::new(registry), &options));
+
+    let response = app
+        .oneshot(
+            HttpRequest::get("/v1/models")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("route answers");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json body");
+    let models = body["models"].as_array().expect("models array");
+    assert_eq!(models.len(), 1, "one instance serves one model: {body}");
+    assert_eq!(models[0]["name"], "jev-1.13.0");
 }
