@@ -16,8 +16,28 @@ standard-library notice `RUST-COPYRIGHT-library.html`.
   and evaluation logic it ports; see openjev-rs's own `THIRD_PARTY.md` for the
   preserved copyright notice. The Jev wire projection in `systemone-http` was
   moved here from openjev-rs.
+- [codesoda/laya-rs](https://github.com/codesoda/laya-rs) (`laya-core`),
+  Apache-2.0, pinned by Git revision in `Cargo.toml` and enabled by the `laya-cpu` /
+  `laya-metal` features. It reproduces the open
+  [Laya](https://github.com/NandhaKishorM/laya) runtime by Convai Innovations
+  and links [MLX](https://github.com/ml-explore/mlx) (MIT, through a vendored
+  `mlx-sys` pinned in the same repository) or
+  [Candle](https://github.com/huggingface/candle) (MIT OR Apache-2.0). These
+  features are **not in the binary releases yet**, so the generated notice
+  bundle below does not cover them; that is tracked as a release blocker for
+  shipping Laya.
+- [codesoda/gliner2-rs](https://github.com/codesoda/gliner2-rs) (`gliner2-rs`),
+  Apache-2.0, pinned to the `v0.2.0` release commit in `Cargo.toml` and
+  enabled by the `gliner2` feature. It runs ONNX exports of [GLiNER2](https://github.com/fastino-ai/GLiNER2)
+  by Fastino AI (Apache-2.0) through [ONNX Runtime](https://github.com/microsoft/onnxruntime)
+  (MIT) via the [ort](https://github.com/pykeio/ort) crate (MIT OR
+  Apache-2.0), which fetches a pinned prebuilt static library at build time.
+  These features are **not in
+  the binary releases yet**, so the generated notice bundle below does not
+  cover them.
 - SystemOne is not affiliated with or endorsed by SemIf, TheoLeeCJ, TypeSafe
-  AI, or Jev. Names and marks belong to their respective owners.
+  AI, Convai Innovations, Fastino AI, or Jev. Names and marks belong to their respective
+  owners.
 
 ## Native inference
 

@@ -42,8 +42,10 @@ merged.
 ## Development checks
 
 Rust 1.95 is pinned by `rust-toolchain.toml`. The default build compiles no
-llama.cpp and runs offline; `native`, `metal`, and `cuda` on `systemone-cli`
-add local inference and need CMake plus a C/C++ toolchain.
+inference runtime and runs offline; `native`, `metal`, and `cuda` on
+`systemone-cli` add OpenJev, `laya-cpu` / `laya-metal` add Laya, and `gliner2`
+adds GLiNER2 (ONNX Runtime, fetched prebuilt at build time). All need CMake
+plus a C/C++ toolchain; `laya-metal` compiles MLX from source (macOS).
 
 Run these before you push:
 
@@ -60,12 +62,33 @@ If you touch the adapter, the HTTP service, or anything under `crates/`, also
 build and run the native feature once. On Apple Silicon:
 
 ```sh
-cargo clippy -p systemone-cli --all-targets --features metal -- -D warnings
-cargo build -p systemone-cli --features metal
+cargo clippy -p systemone-cli --all-targets --features metal,laya-metal,gliner2 -- -D warnings
+cargo build -p systemone-cli --features metal,laya-metal,gliner2
 ```
 
-CI runs the same checks on Linux for every pull request. The macOS build runs
-only for release tags.
+CI runs the same checks on Linux for every pull request. The main Linux job
+(`ubuntu-22.04`, with `laya-cpu`) also builds the release binary, so it keeps
+the glibc 2.35 floor. `gliner2` runs in its own `ubuntu-24.04` job because the
+ONNX Runtime library that `ort` downloads needs glibc 2.38. The macOS build
+runs only for release tags.
+
+### SDK smoke
+
+The only backend-specific test SystemOne runs is the JS SDK smoke against a
+real `s1 serve`; everything deeper (numerical parity, goldens, tolerances)
+belongs to the backend's own repository. With a server running:
+
+```sh
+cd compat/sdk-js && npm ci
+SYSTEMONE_BASE_URL=http://127.0.0.1:8080 node smoke.mjs                              # openjev
+SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=laya node smoke.mjs # laya
+SYSTEMONE_BASE_URL=http://127.0.0.1:8080 SYSTEMONE_SMOKE_BACKEND=gliner2 node smoke.mjs # gliner2
+```
+
+The GLiNER2 adapter also has a held-out product evaluation
+(`evals/gliner2/run.py`, results in `docs/gliner2-evaluation.md`). Rerun it
+when you change the mapping in `crates/systemone-gliner2/src/convert.rs` and
+update the numbers.
 
 ### Changing dependencies
 

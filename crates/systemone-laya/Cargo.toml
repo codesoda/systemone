@@ -1,0 +1,33 @@
+[package]
+name = "systemone-laya"
+description = "SystemOne host adapter over the laya-core decision runtime (ModernBERT/mmBERT encoders with calibrated decision heads)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Link the laya-core runtime. Without it the adapter validates settings and
+# reports `available = false`; `load` fails explicitly.
+laya = ["dep:laya-core"]
+# Backends inside laya-core. `laya-cpu` is portable (Candle, fp32, no BLAS).
+# `laya-accelerate` adds Apple's Accelerate BLAS to it (macOS only).
+# `laya-metal` is macOS-only (MLX).
+laya-cpu = ["laya", "laya-core/candle"]
+laya-accelerate = ["laya-cpu", "laya-core/candle-accelerate"]
+laya-metal = ["laya", "laya-core/mlx"]
+
+[dependencies]
+laya-core = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+systemone-core.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

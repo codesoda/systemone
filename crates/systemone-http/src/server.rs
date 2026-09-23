@@ -451,6 +451,9 @@ fn success_response(evaluated: &Evaluated, request_id: &str) -> Response {
     if let Some(id) = &diagnostics.provider_request_id {
         insert_safe_header(headers, "x-systemone-provider-request-id", id);
     }
+    if let Some(truncation) = &diagnostics.truncation {
+        insert_safe_header(headers, "x-systemone-truncation", truncation);
+    }
     response
 }
 

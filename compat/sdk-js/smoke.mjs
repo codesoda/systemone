@@ -3,6 +3,13 @@ import { TypeSafeClient, choice, noul, score } from "@typesafe-ai/sdk";
 
 const baseURL = process.env.SYSTEMONE_BASE_URL ?? "http://127.0.0.1:8080";
 const apiKey = process.env.SYSTEMONE_API_KEY ?? "systemone-local-sdk-smoke";
+// Which backend kind the server is running; only backend-specific limits
+// differ. openjev: float state values are rejected (422). laya and gliner2:
+// accepted.
+const backendKind = process.env.SYSTEMONE_SMOKE_BACKEND ?? "openjev";
+if (!["openjev", "laya", "gliner2"].includes(backendKind)) {
+  throw new Error(`SYSTEMONE_SMOKE_BACKEND must be openjev, laya or gliner2, got ${backendKind}`);
+}
 const client = new TypeSafeClient({
   apiKey,
   baseURL,
@@ -73,21 +80,27 @@ try {
 }
 if (!rejected) throw new Error("unknown model did not produce the SDK's 404 error path");
 
-let floatRejected = false;
+let floatOutcome = "accepted";
 try {
-  await client.systemOne({
-    state: { unsupportedFloat: 1.5 },
+  const withFloat = await client.systemOne({
+    state: { floatValue: 1.5 },
     questions: { q: noul("?") },
   });
+  probability(withFloat.answers.q.noul);
 } catch (error) {
-  floatRejected = error?.status === 422;
+  floatOutcome = error?.status === 422 ? "rejected-422" : `unexpected:${error?.status ?? error}`;
 }
-assert.ok(floatRejected, "unsupported floats must produce the SDK's 422 error path");
+if (backendKind === "openjev") {
+  assert.equal(floatOutcome, "rejected-422", "openjev must reject float state values with the SDK's 422 path");
+} else {
+  assert.equal(floatOutcome, "accepted", `${backendKind} must accept float state values`);
+}
 
 console.log(JSON.stringify({
   sdk: "@typesafe-ai/sdk@0.6.0",
   source_commit: "66880ccded6cb642dc1809620c2b108c33730214",
   baseURL,
+  backend: backendKind,
   model: result.model,
   answers: Object.keys(result.answers),
   usage: result.usage,

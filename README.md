@@ -16,11 +16,12 @@ configuration, not in code.
 · [Report a bug](https://github.com/codesoda/systemone/issues)
 · [Request a feature](https://github.com/codesoda/systemone/issues/new)
 
-> **Status:** the `s1` binary, layered configuration, HTTP service, the
-> OpenJev backend and the TypeSafe backend are implemented; the
-> OpenJev path was exercised against a real Metal model, including the
-> official TypeSafe JS SDK. Binary releases are built by
-> CI on `v*` tags. Laya, GLiNER2, Vercel and OpenRouter backends are planned;
+> **Status:** the `s1` binary, layered configuration, HTTP service and the
+> OpenJev, Laya, GLiNER2 and TypeSafe backends are implemented. The local
+> backends were exercised against real models and TypeSafe against its live
+> hosted API, including the official TypeSafe JS SDK. Binary releases are
+> built by CI on `v*` tags and currently ship OpenJev and TypeSafe; Laya and
+> GLiNER2 are source builds. Vercel and OpenRouter backends are planned;
 > enabling one today is a clear configuration error, not a silent fallback.
 > Only the Apple Silicon build has been run with real weights.
 
@@ -86,11 +87,11 @@ coverage.
 | Kind | Implementation | Status |
 | --- | --- | --- |
 | `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | **Available.** Prompt/token parity and explicit serial fallback preserved |
+| `laya` | Bidirectional encoder with trained decision heads through [laya-core](https://github.com/codesoda/laya-rs) | **Available** with `--features laya-cpu` (Candle) or `laya-metal` (MLX, Apple Silicon). Parity with the upstream Python runtime is gated in laya-rs; not in binary releases yet |
+| `gliner2` | GLiNER2.5 zero-shot label classifier through [gliner2-rs](https://github.com/codesoda/gliner2-rs) and ONNX Runtime | **Available** with `--features gliner2` (CPU). Choice and Noul hold up on the held-out set; Score does not ([evaluation](docs/gliner2-evaluation.md)). Not in binary releases yet |
 | `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable |
 | `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
 | `openrouter` | Hosted Jev through OpenRouter | Planned |
-| `gliner2` | Runtime-defined label classification through gliner2-rs | Planned; needs upstream distribution API |
-| `laya` | Bidirectional encoder and trained decision heads through laya-rs | Planned; needs Rust runtime |
 
 Enable only the instances you need. Disabled local backends do not load
 weights; disabled remote backends do not read credentials. There is **no
@@ -100,6 +101,8 @@ silent local-to-cloud fallback**.
 
 - [Rust](https://www.rust-lang.org/)
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) through [llama-cpp-2](https://github.com/utilityai/llama-cpp-rs), via openjev-rs
+- [MLX](https://github.com/ml-explore/mlx) through [mlx-rs](https://github.com/oxideai/mlx-rs) and [Candle](https://github.com/huggingface/candle), via laya-rs
+- [ONNX Runtime](https://onnxruntime.ai/) through [ort](https://github.com/pykeio/ort), via gliner2-rs
 - [Hugging Face Hub](https://huggingface.co/) for pinned, checksum-verified GGUF weights
 - [Axum](https://github.com/tokio-rs/axum) and [Tokio](https://tokio.rs/) for HTTP serving
 
@@ -189,6 +192,18 @@ GGML_METAL=OFF CARGO_TARGET_DIR=target-cpu \
 Keep CPU and Metal builds in separate target directories. Plain `cargo build`
 deliberately omits llama.cpp: configuration, listing and the HTTP plumbing
 work, but local inference returns `unavailable`.
+
+Add `laya-cpu` (any platform, Candle without BLAS), `laya-accelerate` (macOS,
+adds Apple's Accelerate BLAS) or `laya-metal` (Apple Silicon, MLX compiled from
+source; needs CMake, includes `laya-accelerate`) to the feature list for the
+Laya backend, for example `--features metal,laya-metal`. The build-time environment MLX needs is
+set in `.cargo/config.toml`.
+
+Add `gliner2` for the GLiNER2 backend. It links ONNX Runtime statically; the
+`ort` crate fetches the pinned prebuilt library at build time, so the first
+build needs network access. All three local runtimes link into one binary
+(`--features metal,laya-metal,gliner2` was built and served all three
+backends from one process on Apple Silicon).
 
 </details>
 
@@ -335,7 +350,8 @@ to hosted Jev; the response reports the actual model. `output_tokens` is zero
 because nothing is generated. Routing evidence travels in headers, so the JSON
 stays SDK-compatible: `x-systemone-backend`, `x-systemone-model`,
 `x-systemone-request-id`, `x-systemone-elapsed-ms`, `x-systemone-execution`,
-`x-systemone-fallback` and `x-systemone-probability-status`.
+`x-systemone-fallback`, `x-systemone-probability-status` and
+`x-systemone-truncation`.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -443,6 +459,60 @@ See [examples/systemone.config.toml](examples/systemone.config.toml) for the
 full shape, including disabled hosted backends. SystemOne never reads
 `OPENJEV_*` variables or upstream config files.
 
+A Laya instance points at a directory holding one pinned profile; there is no
+downloader, and every file is SHA-256 verified against laya-core's embedded
+manifest before it loads:
+
+```toml
+[backends.laya]
+kind = "laya"
+enabled = true
+
+[backends.laya.settings]
+profile = "english"          # english | multilingual | typed-decisions
+model_dir = "~/models/laya/english"
+device = "metal"             # cpu (laya-cpu build) or metal (laya-metal build)
+```
+
+The instance serves as `laya-<profile>`; `cache_dir` (default
+`~/Library/Caches/laya-rs`, `~/.cache/laya-rs` elsewhere) holds the Metal
+kernel library. Laya batches every question of a request into one forward
+pass, accepts any JSON state, answers a one-option Choice deterministically
+(the network needs two options) and treats missing `instructions` as empty
+text. Truncation is disclosed in `x-systemone-truncation`.
+
+A GLiNER2 instance points at a GLiNER2.5 bundle directory (or a copy of just
+its `config.json`, `tokenizer.json`, `encoder.onnx` and `classifier.onnx`).
+Download bundles with gliner2-rs's downloader; the adapter verifies those four
+files against the bundle's `export_manifest.json` before it loads and never
+opens the extraction heads:
+
+```toml
+[backends.gliner2]
+kind = "gliner2"
+enabled = true
+
+[backends.gliner2.settings]
+profile = "base"             # small | base | multi
+model_dir = "~/models/gliner2.5-base-v1"
+# intra_threads = 4
+# noul_labels = ["no", "yes"]
+```
+
+The instance serves as `gliner2.5-<profile>`. Mapping: the question ID is the
+task name and `instructions` the task prompt; Choice options become labels
+(option values become label descriptions) and the answer is a full softmax;
+Noul uses two ordered labels (`noul_labels`, default `no`/`yes`, which
+measured better than `false`/`true` on every checkpoint) and reports the
+mass on the second; Score maps levels to labels and returns `sum(i · p[i])`,
+a **derived ordinal classification**, not a trained scoring head — on the
+held-out set it did not work as a grader. Each question is one encoder pass
+on its own, so an answer never depends on which other questions were asked.
+A one-option Choice is answered deterministically. Confidence is the
+normalized margin `(max − 1/n)/(1 − 1/n)`. JSON state is rendered as compact
+JSON; the model does not weigh numeric fields well. Truncation by the
+checkpoint's word cap is disclosed in `x-systemone-truncation`.
+
 ## Models
 
 | Model ID | Quantization | Approx. download | When to try it |
@@ -472,7 +542,13 @@ registry and re-verifies every cached file by SHA-256 before it says
   per request; Choice has 1–16 options, Score 2–16 levels; bodies are limited to
   1 MiB. Duplicate JSON keys are rejected. OpenJev accepts integer-only JSON
   state; floats are a validation error.
-- **One backend kind today.** Hosted, GLiNER2 and Laya adapters are planned.
+- **Three local backend kinds and one hosted backend today.** The Vercel AI
+  Gateway and OpenRouter passthroughs are planned. Laya and GLiNER2 are not in
+  the binary releases yet (build from source).
+- **GLiNER2 Score is weak.** On the held-out set it scored 50% exact on every
+  checkpoint and inverted an essay rubric. Use Choice with named categories
+  where you can. GLiNER2 runs on CPU only; CoreML/CUDA are rejected, not
+  emulated. See [docs/gliner2-evaluation.md](docs/gliner2-evaluation.md).
 - **Validation differs by platform.** Only the Apple Silicon Metal build has
   been run with real weights. Linux CI builds, tests without weights, packages
   and checks linkage. No Windows build.
@@ -484,6 +560,7 @@ registry and re-verifies every cached file by SHA-256 before it says
 | [Demo](docs/demo.md) | The README walkthrough with copyable requests |
 | [Binary releases](docs/RELEASE.md) | Platforms, checksum verification, package contents |
 | [Cross-repo plan](docs/plans/cross-repo.md) | Backend contract, configuration, routing and wire rules (canonical) |
+| [GLiNER2 evaluation](docs/gliner2-evaluation.md) | Held-out Choice/Noul/Score results per checkpoint and what they mean |
 | [Research sources](docs/research/sources.md) | Pinned upstream references for the planned adapters |
 | [Changelog](CHANGELOG.md) | Shipped changes and what each release verified |
 | [Third-party notices](THIRD_PARTY.md) | Upstream credits, licenses and the MPL-2.0 source obligation |
@@ -495,7 +572,9 @@ registry and re-verifies every cached file by SHA-256 before it says
 - [x] TypeSafe hosted Jev backend (`kind = "typesafe"`).
 - [x] Tagged binary releases for Apple Silicon and Linux x86-64.
 - [ ] Hosted Jev passthrough (Vercel AI Gateway, OpenRouter).
-- [ ] GLiNER2 and Laya backends behind their upstream library gates.
+- [x] Laya backend behind laya-core's parity gate (source build).
+- [x] GLiNER2 backend behind its upstream library gate (source build).
+- [ ] Laya and GLiNER2 in binary releases.
 - [ ] Cross-backend quality and performance fixtures.
 - [ ] Windows build; signed and notarized macOS binaries.
 

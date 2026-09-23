@@ -4,6 +4,8 @@ members = [
     "crates/systemone-config",
     "crates/systemone-openjev",
     "crates/systemone-remote",
+    "crates/systemone-laya",
+    "crates/systemone-gliner2",
     "crates/systemone-http",
     "crates/systemone-cli",
 ]
@@ -21,19 +23,26 @@ systemone-core = { path = "crates/systemone-core" }
 systemone-config = { path = "crates/systemone-config" }
 systemone-openjev = { path = "crates/systemone-openjev" }
 systemone-remote = { path = "crates/systemone-remote" }
+systemone-laya = { path = "crates/systemone-laya" }
+systemone-gliner2 = { path = "crates/systemone-gliner2" }
 systemone-http = { path = "crates/systemone-http" }
 
 # Upstream inference libraries are pinned to reviewed Git revisions. They must
 # never depend on SystemOne, and release builds must not use path overrides.
 openjev-core = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02" }
 openjev-llama = { git = "https://github.com/codesoda/openjev-rs.git", rev = "8452ef0e5890497deb2cec95f16dc8d94d0c0c02", default-features = false }
+laya-core = { git = "https://github.com/codesoda/laya-rs.git", rev = "23fff422666fd5039998fd8a55ca57f7e40d224b", default-features = false }
+# gliner2-rs rev is the v0.2.0 release tag commit.
+gliner2-rs = { git = "https://github.com/codesoda/gliner2-rs.git", rev = "1bcf40e80c114ceb707d172b3efd28b577121b39" }
 
+anyhow = "=1.0.104"
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
 clap = { version = "=4.6.7", features = ["derive", "string"] }
 http-body-util = "=0.1.5"
 reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls", "blocking"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+sha2 = "=0.11.0"
 thiserror = "=2.0.20"
 tokio = { version = "=1.53.1", features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = { version = "=1.1.5", default-features = false, features = ["std", "serde", "parse", "display"] }
@@ -44,6 +53,13 @@ tracing-subscriber = "=0.3.23"
 futures-util = "=0.3.34"
 tempfile = "=3.27.0"
 tower = { version = "=0.5.2", features = ["util"] }
+
+# laya-core's MLX backend pins a patched mlx-sys (JIT Metal build) that lives in
+# the laya-rs repository. Cargo does not propagate a dependency's [patch]
+# table, so the same pin is repeated here; it only takes effect with
+# `--features laya-metal`.
+[patch.crates-io]
+mlx-sys = { git = "https://github.com/codesoda/laya-rs.git", rev = "23fff422666fd5039998fd8a55ca57f7e40d224b" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
