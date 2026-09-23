@@ -14,9 +14,10 @@ workflow.
   HTTP transport (bounded response bodies, disabled redirects, single send,
   no fallback), operator-configured API-key environment variable,
   selector stripping, verbatim answer/usage/model passthrough, sanitized error
-  envelopes, and strict parsing of the TypeSafe `/v1/models` catalogue.
-  `GET /v1/models` still serves the one card of the configured instance
-  model, as it does for every other kind. Includes
+  envelopes, and strict parsing of the TypeSafe `/v1/models` catalogue in the
+  library API that the live smoke uses; the served catalogue is unchanged, as
+  `GET /v1/models` serves the one card of the configured instance model, as it
+  does for every other kind. Includes
   credential-free mock tests and an opt-in, spend-acknowledged live smoke
   test (`TYPESAFE_API_KEY` + `SYSTEMONE_LIVE_SMOKE=spend-acknowledged`). The
   adapter forwards request state unchanged, floats included, because the
@@ -41,7 +42,11 @@ workflow.
   one. That moves keys only; no probability, label, answer value, usage
   counter or model identity is changed. Alignment is not repair: an upstream
   body that misses, adds, renames or retypes an answer or a Choice label is an
-  invalid body and fails the request.
+  invalid body and fails the request. A score answer keeps its positional
+  scale: one that covers more or fewer levels than the request declared is
+  refused as well, instead of reaching the caller with the upstream's rubric.
+  `model` defaults to the upstream alias `jev-latest` when the instance sets
+  none, so pin a concrete version for a stable identity.
 - `examples/systemone.config.toml` and the README Configuration section show
   a `typesafe` instance pinned to a concrete model version
   (`model = "jev-1.13.0"`, `aliases = ["jev-latest"]`). The upstream catalogue

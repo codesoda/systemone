@@ -42,7 +42,9 @@ merged.
 ## Development checks
 
 Rust 1.95 is pinned by `rust-toolchain.toml`. The default build compiles no
-inference runtime and runs offline; `native`, `metal`, and `cuda` on
+inference runtime, so it runs no local inference; the hosted `typesafe`
+adapter is always linked, so a default build does reach the network when a
+hosted instance is configured and selected. `native`, `metal`, and `cuda` on
 `systemone-cli` add OpenJev, `laya-cpu` / `laya-metal` add Laya, and `gliner2`
 adds GLiNER2 (ONNX Runtime, fetched prebuilt at build time). All need CMake
 plus a C/C++ toolchain; `laya-metal` compiles MLX from source (macOS).
@@ -125,8 +127,11 @@ enabled = false
 ```
 
 ```sh
-cd /tmp/s1-typesafe && TYPESAFE_API_KEY=<key> s1 serve
+cd /tmp/s1-typesafe && source ~/.typesafe.env && s1 serve
 ```
+
+Read the key from a file that the shell sources, as above. A `VAR=value s1
+serve` prefix puts it in the shell history and in the process listing.
 
 Pin a concrete model version, as above. The upstream catalogue lists aliases
 only (`jev-latest`, `jev-preview`) and does not reveal the version behind them,

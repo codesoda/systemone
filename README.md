@@ -346,8 +346,9 @@ Response shape (**illustrative values**, not a promised prediction):
 }
 ```
 
-`jev-latest` is an accepted alias for the selected backend's model, not a call
-to hosted Jev; the response reports the actual model. `output_tokens` is zero
+`jev-latest` is an accepted alias that resolves to the selected backend's
+model; the response reports the actual model. It reaches the hosted Jev API
+only when the selected backend is a `typesafe` instance. `output_tokens` is zero
 for the local backends, because nothing is generated; a hosted backend reports
 the count its API returned. Routing evidence travels in headers, so the JSON
 stays SDK-compatible: `x-systemone-backend`, `x-systemone-model`,
@@ -536,7 +537,9 @@ arrive as the API reported them. SystemOne validates the body and refuses a
 corrupt one; it never repairs or renormalizes it. One request is one upstream
 call: no retries and no fallback.
 
-**Model identity.** Pin a concrete version, as above, for a stable identity:
+**Model identity.** `model` defaults to `jev-latest`, which is an upstream
+alias, so an instance that sets no `model` takes the alias path described
+here. Pin a concrete version, as above, for a stable identity:
 SystemOne resolves the requested `jev-latest` to the configured
 `jev-1.13.0`, sends that upstream, and the answer names the same model as the
 single `/v1/models` card. Configure an upstream alias as the instance `model`

@@ -27,7 +27,8 @@ threads = 4
 # Pin a concrete version for a stable identity: requests for the alias
 # resolve to `model`, and the answer names it. Model identity is passed
 # through verbatim, so setting `model = "jev-latest"` instead makes answers
-# carry whatever concrete version the API picks for that alias.
+# carry whatever concrete version the API picks for that alias. `model`
+# defaults to `jev-latest`, so an instance that sets none takes that path.
 [backends.cloud-typesafe]
 kind = "typesafe"
 enabled = false
