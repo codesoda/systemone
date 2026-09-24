@@ -21,7 +21,7 @@ workflow.
   `jev-latest` alias; `usage.output_tokens` follows upstream kev (the token
   count of the serialised answers). kev-core carries its own frozen parity
   and benchmark gates against upstream goldens in
-  [kev-rs](https://github.com/codesoda/kev-rs), pinned at the v0.1.0
+  [kev-rs](https://github.com/codesoda/kev-rs), pinned at the v0.1.1
   release tag commit; `kev` is not in binary releases yet. The TypeSafe
   SDK smoke gains a `kev` expectation row
   (`SYSTEMONE_SMOKE_BACKEND=kev`, output tokens counted, float state

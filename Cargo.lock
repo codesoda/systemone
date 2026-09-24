@@ -1990,8 +1990,8 @@ dependencies = [
 
 [[package]]
 name = "kev-core"
-version = "0.1.0"
-source = "git+https://github.com/codesoda/kev-rs.git?rev=799d552e091688d99305d40460450b70f1267503#799d552e091688d99305d40460450b70f1267503"
+version = "0.1.1"
+source = "git+https://github.com/codesoda/kev-rs.git?rev=00effe86e87be1c5009b95d8ea1f943cd55103ec#00effe86e87be1c5009b95d8ea1f943cd55103ec"
 dependencies = [
  "anyhow",
  "candle-core",
