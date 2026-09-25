@@ -15,8 +15,8 @@
 //! would refuse requests the live service answers. Float state values are
 //! the example. The OpenJev adapter rejects them because its own state
 //! type is integer-only; that is an adapter limitation, not a SystemOne
-//! rule (see `docs/plans/cross-repo.md` §5). The TypeSafe API accepts
-//! floats, so this adapter forwards them.
+//! rule: general wire validation stays separate from adapter limits. The
+//! TypeSafe API accepts floats, so this adapter forwards them.
 
 use std::time::{Duration, Instant};
 

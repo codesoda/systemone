@@ -682,7 +682,7 @@ fn settings_reject_secret_values_and_bad_env_names() {
 /// Floats in state reach the API unchanged. The live TypeSafe API answers
 /// such a request with HTTP 200, so the adapter adds no rejection of its
 /// own. OpenJev's integer-only state is an adapter limitation, not a
-/// SystemOne rule (`docs/plans/cross-repo.md` §5).
+/// SystemOne rule.
 #[test]
 fn floats_in_state_are_forwarded_unchanged() {
     let body = br#"{"state":{"nested":{"count":1.5},"ratios":[0.25]},"questions":{"worth":{"type":"noul","criteria":{"true":"it works"}}}}"#;

@@ -6,13 +6,12 @@ checks, and release steps. This file adds what an agent needs beyond that.
 
 ## Sources of truth
 
-- [docs/plans/cross-repo.md](docs/plans/cross-repo.md) is canonical for the
-  backend contract, configuration layering, routing, and wire compatibility.
-  Do not fork it into competing plans. Do not add checklists to it; future work
-  goes to GitHub issues, shipped work goes to `CHANGELOG.md`.
-- Upstream libraries stay independent repositories. SystemOne owns the common
-  config, service, routing, and adapters. Required backend kinds include both
-  Vercel AI Gateway and OpenRouter.
+- The code and its contract tests define the backend contract, configuration
+  layering, routing, and wire compatibility. Future work goes to GitHub
+  issues; shipped work goes to `CHANGELOG.md`. Do not commit plan documents.
+- SystemOne owns the common config, service, routing, and adapters. Shared
+  inference runtimes may live in internal workspace crates; do not create a
+  separate repository for a model that reuses an existing runtime or backbone.
 
 ## Hard lines
 

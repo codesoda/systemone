@@ -600,9 +600,7 @@ registry and re-verifies every cached file by SHA-256 before it says
 | --- | --- |
 | [Demo](docs/demo.md) | The README walkthrough with copyable requests |
 | [Binary releases](docs/RELEASE.md) | Platforms, checksum verification, package contents |
-| [Cross-repo plan](docs/plans/cross-repo.md) | Backend contract, configuration, routing and wire rules (canonical) |
 | [GLiNER2 evaluation](docs/gliner2-evaluation.md) | Held-out Choice/Noul/Score results per checkpoint and what they mean |
-| [Research sources](docs/research/sources.md) | Pinned upstream references for the planned adapters |
 | [Changelog](CHANGELOG.md) | Shipped changes and what each release verified |
 | [Third-party notices](THIRD_PARTY.md) | Upstream credits, licenses and the MPL-2.0 source obligation |
 
