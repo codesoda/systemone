@@ -10,6 +10,7 @@
 //! empty string; single-option Choice answered deterministically; one
 //! batched forward pass per request).
 
+pub mod download;
 pub mod settings;
 
 #[cfg(feature = "laya")]
