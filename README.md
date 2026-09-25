@@ -88,6 +88,7 @@ coverage.
 | --- | --- | --- |
 | `openjev` | Frozen LLM next-token scoring through `openjev-core` / `openjev-llama` | **Available.** Prompt/token parity and explicit serial fallback preserved |
 | `laya` | Bidirectional encoder with trained decision heads through [laya-core](https://github.com/codesoda/laya-rs) | **Available** with `--features laya-cpu` (Candle) or `laya-metal` (MLX, Apple Silicon). Parity with the upstream Python runtime is gated in laya-rs; not in binary releases yet |
+| `kev` | Kev pointer-head decision models ([jaredpalmer/kev](https://github.com/jaredpalmer/kev)) on Qwen bases through kev-core (kev-rs) | **Available** with `--features kev-cpu` (Candle, Qwen3 checkpoints such as kev-0.6b) or `kev-metal` (MLX, Apple Silicon, Qwen3.5 hybrid checkpoints kev-0.8b/kev-4b). Parity and performance are gated in [kev-rs](https://github.com/codesoda/kev-rs) against frozen upstream goldens; not in binary releases yet |
 | `gliner2` | GLiNER2.5 zero-shot label classifier through [gliner2-rs](https://github.com/codesoda/gliner2-rs) and ONNX Runtime | **Available** with `--features gliner2` (CPU). Choice and Noul hold up on the held-out set; Score does not ([evaluation](docs/gliner2-evaluation.md)). Not in binary releases yet |
 | `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable. `s1 backends` reports it unavailable while that variable is unset or empty; the hosted API is never probed, because a probe request is billed |
 | `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
@@ -200,11 +201,17 @@ source; needs CMake, includes `laya-accelerate`) to the feature list for the
 Laya backend, for example `--features metal,laya-metal`. The build-time environment MLX needs is
 set in `.cargo/config.toml`.
 
+Add `kev-cpu` (any platform, Candle; serves the Qwen3-generation kev-0.6b),
+`kev-accelerate` (macOS, adds Accelerate BLAS) or `kev-metal` (Apple Silicon,
+MLX; serves the Qwen3.5 hybrid kev-0.8b/kev-4b, includes `kev-accelerate`)
+for the Kev backend. It shares the same pinned mlx-sys build as Laya, so
+`--features laya-metal,kev-metal` links one MLX into one binary.
+
 Add `gliner2` for the GLiNER2 backend. It links ONNX Runtime statically; the
 `ort` crate fetches the pinned prebuilt library at build time, so the first
-build needs network access. All three local runtimes link into one binary
-(`--features metal,laya-metal,gliner2` was built and served all three
-backends from one process on Apple Silicon).
+build needs network access. All local runtimes link into one binary
+(`--features metal,laya-metal,kev-metal,gliner2` was built and served from
+one process on Apple Silicon).
 
 </details>
 
@@ -483,6 +490,31 @@ kernel library. Laya batches every question of a request into one forward
 pass, accepts any JSON state, answers a one-option Choice deterministically
 (the network needs two options) and treats missing `instructions` as empty
 text. Truncation is disclosed in `x-systemone-truncation`.
+
+A Kev instance points at a directory holding one assembled checkpoint:
+`base/` (the pinned Qwen base snapshot), `adapter/` (the LoRA adapter) and
+`head.safetensors` + `head.meta.json` (the pickle-free conversion of
+upstream's `head.pt`; the runtime never executes pickle). kev-rs's baseline
+tooling produces and checksums this layout:
+
+```toml
+[backends.kev]
+kind = "kev"
+enabled = true
+
+[backends.kev.settings]
+model_dir = "~/models/kev-0.8b"
+device = "metal"             # cpu (kev-cpu build) or metal (kev-metal build)
+```
+
+The instance serves as the configured `model` name (default `kev-latest`)
+and also answers `jev-latest`. The device must match the checkpoint
+generation: Qwen3.5 hybrid bases need `metal`, Qwen3 attention-only bases
+need `cpu`; a mismatch is a load error, never a silent fallback. Kev batches
+every question of a request as isolated rows over a shared state prefix, and
+reports `usage.output_tokens` the way upstream kev does: the token count of
+the serialised answers (a billing-style figure — the model generates no
+tokens).
 
 A GLiNER2 instance points at a GLiNER2.5 bundle directory (or a copy of just
 its `config.json`, `tokenizer.json`, `encoder.onnx` and `classifier.onnx`).

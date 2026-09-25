@@ -70,6 +70,19 @@ device = "cpu"                      # or "metal" on Apple Silicon
 # precision = "f32"                        # "f16" is Metal-only, opt-in
 # verify_sha256 = true
 
+# Kev: a directory holding one assembled checkpoint (base/, adapter/,
+# head.safetensors, head.meta.json). Needs a build with --features kev-cpu
+# (device = "cpu", Qwen3 checkpoints such as kev-0.6b) or kev-metal
+# (device = "metal", Qwen3.5 hybrid checkpoints kev-0.8b/kev-4b).
+[backends.kev]
+kind = "kev"
+enabled = false
+# model = "kev-latest"              # the served identity; jev-latest is an alias
+
+[backends.kev.settings]
+model_dir = "~/models/kev-0.8b"
+device = "cpu"                      # or "metal" on Apple Silicon
+
 # GLiNER2: a GLiNER2.5 bundle directory from codesoda/gliner2-onnx (the four
 # classification files are verified against export_manifest.json at load).
 # Needs a build with --features gliner2. CPU only.

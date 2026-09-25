@@ -15,6 +15,7 @@ const apiKey = process.env.SYSTEMONE_API_KEY ?? "systemone-local-sdk-smoke";
 const expectations = {
   openjev: { outputTokens: "zero", floatState: "rejected-422" },
   laya: { outputTokens: "zero", floatState: "accepted" },
+  kev: { outputTokens: "counted", floatState: "accepted" },
   gliner2: { outputTokens: "zero", floatState: "accepted" },
   typesafe: { outputTokens: "counted", floatState: "accepted" },
 };

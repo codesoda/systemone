@@ -1,0 +1,31 @@
+[package]
+name = "systemone-kev"
+description = "SystemOne host adapter over the kev-core decision runtime (Kev pointer-head decision models on Qwen bases)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Link the kev-core runtime. Without it the adapter validates settings and
+# reports `available = false`; `load` fails explicitly.
+kev = ["dep:kev-core"]
+# Backends inside kev-core. `kev-cpu` is portable (Candle, fp32, Qwen3
+# attention-only checkpoints such as kev-0.6b). `kev-accelerate` adds Apple's
+# Accelerate BLAS to it (macOS only). `kev-metal` is macOS-only (MLX) and
+# serves the Qwen3.5 hybrid checkpoints (kev-0.8b, kev-4b).
+kev-cpu = ["kev", "kev-core/candle"]
+kev-accelerate = ["kev-cpu", "kev-core/candle-accelerate"]
+kev-metal = ["kev", "kev-core/mlx"]
+
+[dependencies]
+kev-core = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+systemone-core.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

@@ -22,6 +22,12 @@ cuda = ["native", "systemone-openjev/cuda"]
 laya-cpu = ["systemone-laya/laya-cpu"]
 laya-accelerate = ["laya-cpu", "systemone-laya/laya-accelerate"]
 laya-metal = ["laya-accelerate", "systemone-laya/laya-metal"]
+# Local Kev inference. `kev-cpu` is portable (Candle, Qwen3 attention-only
+# checkpoints); `kev-metal` is macOS-only (MLX, Qwen3.5 hybrid checkpoints)
+# and also enables the CPU backend for mixed configs.
+kev-cpu = ["systemone-kev/kev-cpu"]
+kev-accelerate = ["kev-cpu", "systemone-kev/kev-accelerate"]
+kev-metal = ["kev-accelerate", "systemone-kev/kev-metal"]
 # Local GLiNER2.5 classification through ONNX Runtime (CPU only).
 gliner2 = ["systemone-gliner2/gliner2"]
 
@@ -34,6 +40,7 @@ systemone-config.workspace = true
 systemone-core.workspace = true
 systemone-http.workspace = true
 systemone-gliner2.workspace = true
+systemone-kev.workspace = true
 systemone-laya.workspace = true
 systemone-openjev.workspace = true
 systemone-remote.workspace = true

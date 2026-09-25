@@ -1989,6 +1989,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "kev-core"
+version = "0.1.1"
+source = "git+https://github.com/codesoda/kev-rs.git?rev=00effe86e87be1c5009b95d8ea1f943cd55103ec#00effe86e87be1c5009b95d8ea1f943cd55103ec"
+dependencies = [
+ "anyhow",
+ "candle-core",
+ "candle-nn",
+ "half",
+ "mlx-rs",
+ "mlx-sys",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokenizers 0.23.2",
+]
+
+[[package]]
 name = "konst"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3710,6 +3728,7 @@ dependencies = [
  "systemone-core",
  "systemone-gliner2",
  "systemone-http",
+ "systemone-kev",
  "systemone-laya",
  "systemone-openjev",
  "systemone-remote",
@@ -3765,6 +3784,17 @@ dependencies = [
  "systemone-core",
  "tokio",
  "tower",
+ "tracing",
+]
+
+[[package]]
+name = "systemone-kev"
+version = "0.1.0"
+dependencies = [
+ "kev-core",
+ "serde",
+ "serde_json",
+ "systemone-core",
  "tracing",
 ]
 

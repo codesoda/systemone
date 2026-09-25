@@ -9,6 +9,24 @@ workflow.
 
 ### Added
 
+- `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
+  models (jaredpalmer/kev) on Qwen bases through the kev-core runtime
+  (kev-rs), behind `kev-cpu` (Candle, Qwen3-generation checkpoints such as
+  kev-0.6b), `kev-accelerate` (macOS BLAS) and `kev-metal` (MLX, Apple
+  Silicon, Qwen3.5 hybrid checkpoints kev-0.8b/kev-4b; includes the CPU
+  backend) build features. The operator points `model_dir` at an assembled
+  checkpoint (`base/`, `adapter/`, `head.safetensors`, `head.meta.json`);
+  a device/checkpoint-generation mismatch is a load error, never a silent
+  fallback. Serves as the configured `model` (default `kev-latest`) with a
+  `jev-latest` alias; `usage.output_tokens` follows upstream kev (the token
+  count of the serialised answers). kev-core carries its own frozen parity
+  and benchmark gates against upstream goldens in
+  [kev-rs](https://github.com/codesoda/kev-rs), pinned at the v0.1.1
+  release tag commit; `kev` is not in binary releases yet. The TypeSafe
+  SDK smoke gains a `kev` expectation row
+  (`SYSTEMONE_SMOKE_BACKEND=kev`, output tokens counted, float state
+  accepted).
+
 - `typesafe` backend kind (`systemone-remote` crate): direct hosted Jev
   passthrough to `https://api.typesafe.ai/v1/systemone` with a shared remote
   HTTP transport (bounded response bodies, disabled redirects, single send,
