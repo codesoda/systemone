@@ -65,8 +65,20 @@ standard-library notice `RUST-COPYRIGHT-library.html`.
   [Tokio](https://github.com/tokio-rs/tokio) 1.53.1, MIT, provide the resident
   HTTP service.
 - [clap](https://github.com/clap-rs/clap) 4.6.7, MIT OR Apache-2.0.
+- [dialoguer](https://github.com/console-rs/dialoguer) 0.12.0 and
+  [console](https://github.com/console-rs/console), MIT, for `s1 setup`
+  prompts.
+- [toml_edit](https://github.com/toml-rs/toml), MIT OR Apache-2.0, edits
+  config files in place for `s1 setup`.
+- [fs4](https://github.com/al8n/fs4) 1.1.0, MIT OR Apache-2.0, reports free
+  disk space before a download.
 - [reqwest](https://github.com/seanmonstar/reqwest) 0.13.5 with rustls,
-  MIT OR Apache-2.0, for `s1 call`.
+  MIT OR Apache-2.0, for `s1 call` and `s1 setup` downloads.
+- `s1 setup` downloads model files at run time; none are redistributed with
+  the binary. Kev heads are fetched from
+  [codesoda/kev-heads](https://huggingface.co/codesoda/kev-heads), an
+  unmodified tensor-for-tensor safetensors conversion of the Apache-2.0
+  `head.pt` files published by [jaredpalmer/kev](https://github.com/jaredpalmer/kev).
 - The Jev wire adapter and `compat/sdk-js/` smoke are checked against
   [typesafe-ai/typesafe-sdk-js](https://github.com/typesafe-ai/typesafe-sdk-js)
   commit `66880ccded6cb642dc1809620c2b108c33730214`, npm package 0.6.0 (MIT).

@@ -13,6 +13,7 @@
 //! `criteria` object; `usage.output_tokens` = upstream's serialised-answer
 //! token count; one batched pass per request).
 
+pub mod download;
 pub mod settings;
 
 pub mod convert;

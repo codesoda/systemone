@@ -10,6 +10,7 @@
 //! to and from their vendor representation and must never silently coerce,
 //! truncate, or fabricate results the host did not produce.
 
+pub mod artifact;
 pub mod capabilities;
 pub mod error;
 pub mod extension;
@@ -19,6 +20,7 @@ pub mod paths;
 pub mod request;
 pub mod response;
 
+pub use artifact::{DownloadPlan, PinnedFile};
 pub use capabilities::{Capabilities, ModelIdentity, Primitive};
 pub use error::HostError;
 pub use extension::{Extension, ExtensionCoverage, ModelArtifact, ModelStatus, ModelStore};

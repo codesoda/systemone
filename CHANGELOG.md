@@ -9,6 +9,22 @@ workflow.
 
 ### Added
 
+- `s1 setup`: an interactive walkthrough that picks a backend kind (only
+  kinds and devices the build can run), asks for its settings, shows the
+  change, validates it like `s1 config check`, and writes the user or
+  project config (comments kept, `.bak` backup). It then offers to download
+  the model with a progress bar and to run one test decision. Downloads for
+  OpenJev, Laya, Kev and GLiNER2 are pinned to immutable Hugging Face
+  revisions and verified by size and SHA-256 before they are used; Kev's
+  pickle-free heads come from
+  [codesoda/kev-heads](https://huggingface.co/codesoda/kev-heads). Hosted
+  kinds store only the API key's environment variable name. `--yes` accepts
+  every default (and runs without a terminal); `--no-download` skips the
+  download.
+- `systemone-weights` crate: one verified downloader for pinned model files
+  (stream to `.part`, hash while streaming, rename only after size and
+  SHA-256 match; redirects limited to HTTPS on the Hugging Face Hub).
+
 - `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
   models (jaredpalmer/kev) on Qwen bases through the kev-core runtime
   (kev-rs), behind `kev-cpu` (Candle, Qwen3-generation checkpoints such as
