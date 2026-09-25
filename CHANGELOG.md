@@ -7,6 +7,15 @@ workflow.
 
 ## [Unreleased]
 
+### Fixed
+
+- OpenJev `gpu_layers` accepts a layer count as a TOML integer as well as a
+  string, so `--set backends.local.settings.gpu_layers=28`,
+  `SYSTEMONE_BACKENDS__LOCAL__SETTINGS__GPU_LAYERS=28` and `gpu_layers = 28`
+  in a config file all work (#19).
+- A double-quoted `--set` or `SYSTEMONE_*` value is a TOML string literal, so
+  a numeric-looking value can be set as a string (`--set 'key="28"'`).
+
 ### Added
 
 - `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
