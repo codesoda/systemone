@@ -33,6 +33,7 @@ configuration, not in code.
 - [Getting started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Install the CLI](#install-the-cli)
+  - [Set up a backend](#set-up-a-backend)
   - [Download a model](#download-a-model)
   - [Build from source](#build-from-source)
 - [Usage](#usage)
@@ -154,6 +155,31 @@ s1 --version
 
 See [the installer source](install.sh) before running it, or follow the
 [manual installation instructions](docs/RELEASE.md).
+
+### Set up a backend
+
+`s1 setup` walks you through choosing a backend, writes it to your config,
+and downloads its model:
+
+```sh
+s1 setup
+```
+
+It asks which config file to write, which kind of backend to add (only kinds
+and devices this build can run are offered), a name, and the settings for
+that kind. It shows the change and checks it the same way as `s1 config
+check` before it writes anything, and keeps a `.bak` copy of the old file.
+Comments and other backends in the file are kept.
+
+At the end it offers to download the model into `~/.systemone/models/…` with
+a progress bar, and to run one test decision. Every downloaded file is
+pinned to an immutable Hugging Face revision and checked by size and SHA-256
+before it is used. For hosted kinds, setup stores only the *name* of the
+environment variable that holds your API key, never the key.
+
+Prompts and progress go to stderr; stdout gets one JSON summary. Without a
+terminal, pass `--yes` to accept every default, for example
+`s1 setup --yes --kind gliner2 --user`. `--no-download` skips the download.
 
 ### Download a model
 
