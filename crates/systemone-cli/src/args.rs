@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 const ROOT_AFTER_HELP: &str = r#"Examples:
+  s1 setup
   s1 serve
   s1 run --input request.json
   s1 run --jsonl --input requests.jsonl --output answers.jsonl
@@ -53,6 +54,8 @@ pub struct GlobalArgs {
 
 #[derive(Clone, Debug, Subcommand)]
 pub enum Command {
+    /// Walk through choosing, configuring and downloading a backend.
+    Setup(SetupArgs),
     /// Load enabled backends once and serve the Jev-compatible HTTP API.
     Serve(ServeArgs),
     /// Evaluate one request file (or JSONL of requests) in-process.
@@ -204,6 +207,28 @@ pub struct CallArgs {
     pub api_key_env: Option<String>,
     #[arg(long, default_value_t = 130, value_parser = clap::value_parser!(u64).range(1..=600))]
     pub timeout_secs: u64,
+}
+
+#[derive(Clone, Debug, Default, Args)]
+pub struct SetupArgs {
+    /// Write the user file (~/.systemone/systemone.config.toml).
+    #[arg(long, conflicts_with = "project")]
+    pub user: bool,
+    /// Write the project file (./systemone.config.toml).
+    #[arg(long)]
+    pub project: bool,
+    /// Backend instance name to add or edit.
+    #[arg(long, value_name = "NAME")]
+    pub backend: Option<String>,
+    /// Backend kind (openjev, laya, kev, gliner2, typesafe).
+    #[arg(long, value_name = "KIND")]
+    pub kind: Option<String>,
+    /// Accept every default: write, download, and skip the test decision.
+    #[arg(long)]
+    pub yes: bool,
+    /// Do not download model files.
+    #[arg(long)]
+    pub no_download: bool,
 }
 
 #[derive(Clone, Debug, Args)]
