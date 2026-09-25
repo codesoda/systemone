@@ -478,8 +478,18 @@ fn apply_environment(
 
 /// Coerce an environment/CLI string into a TOML scalar: booleans and
 /// integers are typed, everything else stays a string. Floats are not
-/// inferred so model names such as `1.5` survive.
+/// inferred so model names such as `1.5` survive. A value wrapped in double
+/// quotes is a TOML string literal, so `--set 'key="28"'` sets the string
+/// `28` rather than the integer.
 fn coerce(text: &str) -> Value {
+    if text.len() >= 2
+        && text.starts_with('"')
+        && text.ends_with('"')
+        && let Ok(table) = toml::from_str::<Table>(&format!("value = {text}"))
+        && let Some(Value::String(inner)) = table.get("value")
+    {
+        return Value::String(inner.clone());
+    }
     match text {
         "true" => Value::Boolean(true),
         "false" => Value::Boolean(false),
@@ -704,6 +714,11 @@ mod tests {
         assert_eq!(coerce("true"), Value::Boolean(true));
         assert_eq!(coerce("42"), Value::Integer(42));
         assert_eq!(coerce("1.5"), Value::String("1.5".into()));
+        assert_eq!(coerce("\"28\""), Value::String("28".into()));
+        assert_eq!(coerce("\"true\""), Value::String("true".into()));
+        assert_eq!(coerce("\"a \\\"b\\\"\""), Value::String("a \"b\"".into()));
+        // An unbalanced or invalid literal stays the raw text.
+        assert_eq!(coerce("\"x"), Value::String("\"x".into()));
         let error = resolve_with("", "", &[], &["server=1"]).unwrap_err();
         assert!(error.0.contains("table"), "{error}");
     }
