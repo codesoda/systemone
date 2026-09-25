@@ -8,11 +8,10 @@ Thank you for contributing.
   license. There is no CLA.
 - Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 - Keep pull requests focused, reviewable, and reversible.
-- Read [README.md](README.md) and the
-  [cross-repo plan](docs/plans/cross-repo.md) before you change shared
-  semantics. The plan is canonical for the backend contract, configuration
-  layering, routing, and wire compatibility. Change the plan and the affected
-  tests in the same pull request.
+- Read [README.md](README.md) before you change shared semantics. The code
+  and its contract tests define the backend contract, configuration layering,
+  routing, and wire compatibility. Change the behavior and the affected tests
+  in the same pull request.
 - Track future work as GitHub issues. Record shipped work in
   [CHANGELOG.md](CHANGELOG.md) under `Unreleased`.
 
