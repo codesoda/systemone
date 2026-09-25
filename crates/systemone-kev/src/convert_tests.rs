@@ -70,7 +70,10 @@ fn builds_the_upstream_wire_shape_with_null_instructions_for_missing_ones() {
     let kev = to_kev(&request).unwrap();
     // Upstream renders null instructions as the empty string; the noul
     // without descriptions must not carry a criteria object at all.
-    assert_eq!(kev.questions["a"], json!({"type": "noul", "instructions": null}));
+    assert_eq!(
+        kev.questions["a"],
+        json!({"type": "noul", "instructions": null})
+    );
     assert_eq!(
         kev.questions["b"],
         json!({"type": "choice", "instructions": {"q": "café"}, "criteria": {"x": null}})
@@ -88,11 +91,7 @@ fn builds_the_upstream_wire_shape_with_null_instructions_for_missing_ones() {
 #[test]
 fn projects_answers_in_request_order_with_upstream_confidences() {
     let request = three_questions();
-    let probs = vec![
-        vec![0.8, 0.2],
-        vec![0.3, 0.7],
-        vec![0.1, 0.2, 0.7],
-    ];
+    let probs = vec![vec![0.8, 0.2], vec![0.3, 0.7], vec![0.1, 0.2, 0.7]];
     let projected = project(
         &request,
         &EvaluationView {
@@ -133,7 +132,10 @@ fn projects_answers_in_request_order_with_upstream_confidences() {
     assert!((score.score - 1.6).abs() < 1e-12);
     // Upstream score confidence: mode 2, E|i-2| = 0.4, 1 - 0.4/2 = 0.8.
     assert!((score.confidence.unwrap() - 0.8).abs() < 1e-12);
-    assert_eq!(score.legend, vec![json!("low"), json!("medium"), json!("high")]);
+    assert_eq!(
+        score.legend,
+        vec![json!("low"), json!("medium"), json!("high")]
+    );
 
     assert_eq!(projected.usage.input_tokens, Some(42));
     // Upstream kev semantics: the serialised-answer token count, not zero.

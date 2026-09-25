@@ -142,7 +142,11 @@ impl KevHost {
                 id: settings.model_id.clone(),
                 description: format!(
                     "Kev decision model ({} base, temperature {:.3}) served through kev-core on {}",
-                    if ready.hybrid { "Qwen3.5 hybrid" } else { "Qwen3 attention-only" },
+                    if ready.hybrid {
+                        "Qwen3.5 hybrid"
+                    } else {
+                        "Qwen3 attention-only"
+                    },
                     ready.temperature,
                     ready.backend_name,
                 ),

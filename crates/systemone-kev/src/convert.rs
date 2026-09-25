@@ -15,7 +15,10 @@
 //! - `usage.output_tokens` follows upstream kev: the token count of the
 //!   serialised answers (a billing-style figure, not generation).
 
-use serde_json::{Map, Value};
+#[cfg(feature = "kev")]
+use serde_json::Map;
+#[cfg(feature = "kev")]
+use serde_json::Value;
 use systemone_core::{
     Answer, ChoiceAnswer, DecisionRequest, Diagnostics, HostError, NoulAnswer, Question,
     ScoreAnswer, Usage,
@@ -36,14 +39,17 @@ pub fn to_kev(request: &DecisionRequest) -> Result<kev_core::SystemOneRequest, H
         "state": request.state,
         "questions": questions,
     });
-    serde_json::from_value(raw)
-        .map_err(|error| HostError::validation(format!("request does not fit the kev wire: {error}")))
+    serde_json::from_value(raw).map_err(|error| {
+        HostError::validation(format!("request does not fit the kev wire: {error}"))
+    })
 }
 
+#[cfg(feature = "kev")]
 fn instructions(value: Option<&Value>) -> Value {
     value.cloned().unwrap_or(Value::Null)
 }
 
+#[cfg(feature = "kev")]
 fn question_value(question: &Question) -> Value {
     match question {
         Question::Choice(choice) => {
@@ -142,7 +148,11 @@ pub fn project(
             execution: Some(format!(
                 "batched; rows={}; prefix_cache={}; backend={backend}",
                 evaluation.probs.len(),
-                if evaluation.prefix_cache_hit { "hit" } else { "miss" }
+                if evaluation.prefix_cache_hit {
+                    "hit"
+                } else {
+                    "miss"
+                }
             )),
             fallback: None,
             probability_status: Some(PROBABILITY_STATUS.to_owned()),
@@ -208,10 +218,7 @@ fn argmax(probs: &[f64]) -> Result<usize, HostError> {
     probs
         .iter()
         .enumerate()
-        .max_by(|a, b| {
-            a.1.partial_cmp(b.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(index, _)| index)
         .ok_or_else(|| HostError::internal("empty distribution"))
 }
