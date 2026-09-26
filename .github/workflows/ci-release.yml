@@ -29,15 +29,17 @@ jobs:
           set -euo pipefail
           linux='{"runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","expected_arch":"x86_64","package_features":"native","workspace_features":"systemone-cli/native,systemone-cli/laya-cpu"}'
           mac='{"runner":"macos-14","target":"aarch64-apple-darwin","expected_arch":"arm64","package_features":"metal","workspace_features":"systemone-cli/metal"}'
+          windows='{"runner":"windows-2022","target":"x86_64-pc-windows-msvc","expected_arch":"x86_64","package_features":"native","workspace_features":""}'
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "matrix=[$linux,$mac]" >> "$GITHUB_OUTPUT"
+            echo "matrix=[$linux,$mac,$windows]" >> "$GITHUB_OUTPUT"
           else
-            echo "matrix=[$linux]" >> "$GITHUB_OUTPUT"
+            echo "matrix=[$linux,$windows]" >> "$GITHUB_OUTPUT"
           fi
 
   # Linux runs on every push and PR: lint, tests, packaging suites, build,
-  # package. macOS minutes are expensive, so the macOS job runs only for
-  # release tags, and only builds and packages.
+  # package. Windows runs on every push and PR too: workspace tests, then the
+  # release build and package. macOS minutes are expensive, so the macOS job
+  # runs only for release tags, and only builds and packages.
   build-test-package:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
@@ -94,6 +96,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends build-essential clang libclang-dev cmake pkg-config
 
+      - name: Provide python3 on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          printf '#!/bin/sh\nexec python "$@"\n' > "$HOME/bin/python3"
+          chmod +x "$HOME/bin/python3"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
       - name: Configure portable native build
         shell: bash
         run: |
@@ -122,8 +134,18 @@ jobs:
               echo 'GGML_AVX512_BF16=OFF'
               echo 'GGML_FMA=OFF'
               echo 'GGML_F16C=OFF'
-              echo 'RUSTFLAGS=-Ctarget-cpu=x86-64'
             } >> "$GITHUB_ENV"
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              # Link the C runtime statically: no Visual C++ Redistributable.
+              echo 'RUSTFLAGS=-Ctarget-cpu=x86-64 -Ctarget-feature=+crt-static' >> "$GITHUB_ENV"
+            else
+              echo 'RUSTFLAGS=-Ctarget-cpu=x86-64' >> "$GITHUB_ENV"
+            fi
+          fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo 'EXE_SUFFIX=.exe' >> "$GITHUB_ENV"
+          else
+            echo 'EXE_SUFFIX=' >> "$GITHUB_ENV"
           fi
 
       - name: Validate release ref
@@ -152,6 +174,11 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: cargo test --locked --workspace --all-targets
+
+      - name: Test default workspace on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cargo test --locked --workspace --all-targets --no-fail-fast
 
       - name: Clippy native workspace
         if: runner.os == 'Linux'
@@ -188,7 +215,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bin=target/release/s1
+          bin="target/release/s1${EXE_SUFFIX}"
           "$bin" --version | python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["schema"]=="systemone-version-v1" and v["build"].startswith("native"), v'
           "$bin" --no-config backends >/dev/null
           "$bin" --no-config config check >/dev/null
@@ -210,7 +237,7 @@ jobs:
           set -euo pipefail
           rust_version=$(rustc --version)
           archive=$(python3 scripts/release.py package \
-            --binary target/release/s1 \
+            --binary "target/release/s1${EXE_SUFFIX}" \
             --target "$RELEASE_TARGET" \
             --source-sha "$GITHUB_SHA" \
             --source-ref "$GITHUB_REF" \
@@ -223,6 +250,28 @@ jobs:
             --expected-target "$RELEASE_TARGET" \
             --expected-source-sha "$GITHUB_SHA" \
             --check-linkage
+
+      - name: Install the archive with install.ps1 on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = Get-ChildItem dist/*.tar.gz | Select-Object -First 1
+          $version = "v" + (Get-Content Cargo.toml | Select-String -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive.FullName).Hash.ToLowerInvariant()
+          $sums = Join-Path $archive.DirectoryName "SHA256SUMS.test"
+          "$hash  $($archive.Name)" | Set-Content -LiteralPath $sums -Encoding ascii
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP "s1-profile"
+          New-Item -ItemType Directory -Force -Path $env:USERPROFILE | Out-Null
+          & ([scriptblock]::Create((Get-Content -Raw install.ps1))) -Version $version -LocalArchive $archive.FullName -LocalChecksums $sums
+          $installed = Join-Path $env:USERPROFILE ".systemone\bin\s1.exe"
+          $reported = & $installed --version | ConvertFrom-Json
+          if ("v" + $reported.version -ne $version) { throw "installed s1 reports $($reported.version)" }
+          & $installed --no-config backends | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "s1 backends failed" }
+          # A second run with the same version reuses the verified payload.
+          & ([scriptblock]::Create((Get-Content -Raw install.ps1))) -Version $version -LocalArchive $archive.FullName -LocalChecksums $sums
+          Remove-Item -LiteralPath $sums
 
       - name: Upload ordinary workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -324,6 +373,12 @@ jobs:
           name: s1-x86_64-unknown-linux-gnu
           path: dist
 
+      - name: Download Windows archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: s1-x86_64-pc-windows-msvc
+          path: dist
+
       - name: Verify tag, archives, and checksums
         shell: bash
         env:
@@ -337,13 +392,17 @@ jobs:
           version=${TAG#v}
           mac_archive="dist/s1-v${version}-aarch64-apple-darwin.tar.gz"
           linux_archive="dist/s1-v${version}-x86_64-unknown-linux-gnu.tar.gz"
+          windows_archive="dist/s1-v${version}-x86_64-pc-windows-msvc.tar.gz"
           python3 scripts/release.py verify --archive "$mac_archive" \
             --expected-version "$version" --expected-target aarch64-apple-darwin \
             --expected-source-sha "$GITHUB_SHA" --skip-execute
           python3 scripts/release.py verify --archive "$linux_archive" \
             --expected-version "$version" --expected-target x86_64-unknown-linux-gnu \
             --expected-source-sha "$GITHUB_SHA" --skip-execute
-          python3 scripts/release.py checksums --output dist/SHA256SUMS "$mac_archive" "$linux_archive"
+          python3 scripts/release.py verify --archive "$windows_archive" \
+            --expected-version "$version" --expected-target x86_64-pc-windows-msvc \
+            --expected-source-sha "$GITHUB_SHA" --skip-execute
+          python3 scripts/release.py checksums --output dist/SHA256SUMS "$mac_archive" "$linux_archive" "$windows_archive"
           (cd dist && sha256sum --check SHA256SUMS)
 
       - name: Publish GitHub Release once
@@ -366,13 +425,14 @@ jobs:
             "" \
             "Workflow: $RUN_URL" \
             "" \
-            "Includes Apple Silicon macOS 14+ Metal and x86-64 glibc 2.35+ CPU archives. No model weights are included. The macOS binary is not Developer ID signed or Apple notarized." \
+            "Includes Apple Silicon macOS 14+ Metal, x86-64 Linux (glibc 2.35+) CPU and x86-64 Windows 10+ CPU archives. No model weights are included. The macOS binary is not Developer ID signed or Apple notarized." \
             "" \
             > "$notes"
           python3 scripts/release.py notes --tag "$TAG" >> "$notes"
           gh release create "$TAG" \
             "dist/s1-v${version}-aarch64-apple-darwin.tar.gz" \
             "dist/s1-v${version}-x86_64-unknown-linux-gnu.tar.gz" \
+            "dist/s1-v${version}-x86_64-pc-windows-msvc.tar.gz" \
             dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
