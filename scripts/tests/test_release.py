@@ -50,13 +50,13 @@ class ReleasePackagingTests(unittest.TestCase):
         binary.chmod(0o755)
         return binary
 
-    def package(self, binary, output, source_ref="refs/heads/main"):
+    def package(self, binary, output, source_ref="refs/heads/main", target="aarch64-apple-darwin"):
         result = self.run_release(
             "package",
             "--binary",
             str(binary),
             "--target",
-            "aarch64-apple-darwin",
+            target,
             "--source-sha",
             SOURCE_SHA,
             "--source-ref",
@@ -197,19 +197,99 @@ class ReleasePackagingTests(unittest.TestCase):
             self.assertIn("unsafe archive member", rejected.stderr)
             self.assertFalse((root.parent / "outside").exists())
 
-    def test_checksums_cover_exactly_both_targets(self):
+    def test_checksums_cover_exactly_every_target(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             mac = root / ("s1-v%s-aarch64-apple-darwin.tar.gz" % WORKSPACE_VERSION)
             linux = root / ("s1-v%s-x86_64-unknown-linux-gnu.tar.gz" % WORKSPACE_VERSION)
+            windows = root / ("s1-v%s-x86_64-pc-windows-msvc.tar.gz" % WORKSPACE_VERSION)
             mac.write_bytes(b"mac")
             linux.write_bytes(b"linux")
+            windows.write_bytes(b"windows")
             output = root / "SHA256SUMS"
-            self.run_release("checksums", "--output", str(output), str(linux), str(mac))
+            missing = self.run_release("checksums", "--output", str(output), str(linux), str(mac), expect=1)
+            self.assertIn("exactly 3 distinct release archives", missing.stderr)
+            self.run_release("checksums", "--output", str(output), str(windows), str(linux), str(mac))
             lines = output.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(lines), 2)
+            self.assertEqual(len(lines), 3)
             self.assertTrue(lines[0].endswith("  s1-v%s-aarch64-apple-darwin.tar.gz" % WORKSPACE_VERSION))
-            self.assertTrue(lines[1].endswith("  s1-v%s-x86_64-unknown-linux-gnu.tar.gz" % WORKSPACE_VERSION))
+            self.assertTrue(lines[1].endswith("  s1-v%s-x86_64-pc-windows-msvc.tar.gz" % WORKSPACE_VERSION))
+            self.assertTrue(lines[2].endswith("  s1-v%s-x86_64-unknown-linux-gnu.tar.gz" % WORKSPACE_VERSION))
+
+    def test_windows_archive_ships_s1_exe(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = self.fake_binary(root)
+            archive = self.package(binary, root / "out", target="x86_64-pc-windows-msvc")
+            self.assertEqual(archive.name, "s1-v%s-x86_64-pc-windows-msvc.tar.gz" % WORKSPACE_VERSION)
+            with tarfile.open(str(archive), "r:gz") as opened:
+                names = opened.getnames()
+                executable = opened.getmember("s1-v%s-x86_64-pc-windows-msvc/s1.exe" % WORKSPACE_VERSION)
+            self.assertNotIn("s1-v%s-x86_64-pc-windows-msvc/s1" % WORKSPACE_VERSION, names)
+            self.assertEqual(executable.mode, 0o755)
+            info = json.loads(
+                tarfile.open(str(archive), "r:gz")
+                .extractfile("s1-v%s-x86_64-pc-windows-msvc/BUILD-INFO.json" % WORKSPACE_VERSION)
+                .read()
+            )
+            self.assertEqual(info["platform"], "windows")
+            self.assertIn("s1.exe", info["files_sha256"])
+            self.run_release(
+                "verify",
+                "--archive",
+                str(archive),
+                "--expected-target",
+                "x86_64-pc-windows-msvc",
+                "--skip-execute",
+            )
+
+
+def minimal_pe(dll_names, machine=0x8664):
+    """A PE32+ image with one section holding an import table for dll_names."""
+    import struct
+
+    image = bytearray(0x400)
+    image[0:2] = b"MZ"
+    struct.pack_into("<I", image, 0x3C, 0x40)
+    image[0x40:0x44] = b"PE\0\0"
+    struct.pack_into("<HHIIIHH", image, 0x44, machine, 1, 0, 0, 0, 240, 0x22)
+    optional = 0x58
+    struct.pack_into("<H", image, optional, 0x20B)
+    struct.pack_into("<II", image, optional + 112 + 8, 0x1000, 0x100)
+    section = optional + 240
+    image[section:section + 8] = b".idata\0\0"
+    struct.pack_into("<IIII", image, section + 8, 0x200, 0x1000, 0x200, 0x200)
+    names_at = 0x100
+    for index, name in enumerate(dll_names):
+        struct.pack_into("<IIIII", image, 0x200 + index * 20, 0, 0, 0, 0x1000 + names_at, 0)
+        encoded = name.encode("ascii") + b"\0"
+        image[0x200 + names_at:0x200 + names_at + len(encoded)] = encoded
+        names_at += len(encoded)
+    return bytes(image)
+
+
+class WindowsLinkageTests(unittest.TestCase):
+    def setUp(self):
+        if str(RELEASE_SCRIPT.parent) not in sys.path:
+            sys.path.insert(0, str(RELEASE_SCRIPT.parent))
+        import release_lib
+
+        self.lib = release_lib
+
+    def test_pe_imports_are_read_from_the_import_table(self):
+        machine, names = self.lib.pe_imports(minimal_pe(["KERNEL32.dll", "bcrypt.dll"]))
+        self.assertEqual(machine, 0x8664)
+        self.assertEqual(names, ["KERNEL32.dll", "bcrypt.dll"])
+
+    def test_visual_cpp_runtime_imports_are_refused(self):
+        self.lib.check_windows_imports(["KERNEL32.dll", "ws2_32.dll", "api-ms-win-core-synch-l1-2-0.dll"])
+        for name in ("VCRUNTIME140.dll", "MSVCP140.dll"):
+            with self.assertRaises(self.lib.ReleaseError):
+                self.lib.check_windows_imports(["KERNEL32.dll", name])
+
+    def test_non_pe_input_is_refused(self):
+        with self.assertRaises(self.lib.ReleaseError):
+            self.lib.pe_imports(b"\x7fELF" + bytes(64))
 
 
 if __name__ == "__main__":

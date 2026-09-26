@@ -9,6 +9,14 @@ workflow.
 
 ### Added
 
+- Windows x86-64 release target (`x86_64-pc-windows-msvc`): CPU inference,
+  statically linked C runtime, `s1.exe` in a `.tar.gz` archive beside the
+  macOS and Linux archives, and a PowerShell installer (`install.ps1`) that
+  verifies SHA-256 and archive contents before it installs under
+  `%USERPROFILE%\.systemone\bin`. Windows CI runs the workspace tests,
+  builds, packages, checks that only Windows system DLLs are imported, and
+  installs the archive with `install.ps1` (#7).
+
 - `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
   models (jaredpalmer/kev) on Qwen bases through the kev-core runtime
   (kev-rs), behind `kev-cpu` (Candle, Qwen3-generation checkpoints such as

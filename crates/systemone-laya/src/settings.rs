@@ -174,6 +174,15 @@ fn default_cache_dir(home: Option<&Path>) -> Result<PathBuf, HostError> {
 mod tests {
     use super::*;
 
+    /// An absolute path on this platform (`/var/...` is relative on Windows).
+    fn absolute_cache() -> &'static str {
+        if cfg!(windows) {
+            r"C:\cache\laya"
+        } else {
+            "/var/cache/laya"
+        }
+    }
+
     #[test]
     fn defaults_to_english_cpu_f32_with_platform_cache_dir() {
         let resolved = resolve(
@@ -219,7 +228,7 @@ mod tests {
     fn expands_tilde_and_keeps_absolute_paths() {
         let settings = LayaSettings {
             model_dir: Some("~/models/laya/english".into()),
-            cache_dir: Some("/var/cache/laya".into()),
+            cache_dir: Some(absolute_cache().into()),
             device: Some(DeviceSetting::Metal),
             precision: Some(PrecisionSetting::F16),
             ..LayaSettings::default()
@@ -230,7 +239,7 @@ mod tests {
             resolved.model_dir.as_deref(),
             Some(Path::new("/home/t/models/laya/english"))
         );
-        assert_eq!(resolved.cache_dir, Path::new("/var/cache/laya"));
+        assert_eq!(resolved.cache_dir, Path::new(absolute_cache()));
         assert_eq!(resolved.describe()["precision"], "f16");
     }
 }

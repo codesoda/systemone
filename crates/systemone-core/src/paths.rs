@@ -38,7 +38,11 @@ mod tests {
 
     #[test]
     fn absolute_paths_pass_through() {
-        let path = Path::new("/models/bundle");
+        let path = Path::new(if cfg!(windows) {
+            r"C:\models\bundle"
+        } else {
+            "/models/bundle"
+        });
         assert_eq!(absolutize(path, None).unwrap(), PathBuf::from(path));
     }
 

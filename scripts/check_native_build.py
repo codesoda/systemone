@@ -49,12 +49,15 @@ def normalize_platform(value):
         return "macos"
     if normalized == "linux":
         return "linux"
-    raise CacheError("platform must be macOS or Linux, got %r" % value)
+    if normalized == "windows":
+        return "windows"
+    raise CacheError("platform must be macOS, Linux or Windows, got %r" % value)
 
 
 def required_values(platform):
     platform = normalize_platform(platform)
     expected = dict(COMMON_REQUIRED)
+    # Windows uses the same portable x86-64 CPU profile as Linux.
     expected.update(MACOS_REQUIRED if platform == "macos" else LINUX_REQUIRED)
     return expected
 
@@ -101,7 +104,7 @@ def validate_cache(path, platform):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--platform", required=True, help="GitHub runner OS: macOS or Linux")
+    parser.add_argument("--platform", required=True, help="GitHub runner OS: macOS, Linux or Windows")
     parser.add_argument("cache", type=Path, help="path to llama-cpp-sys CMakeCache.txt")
     args = parser.parse_args(argv)
     try:

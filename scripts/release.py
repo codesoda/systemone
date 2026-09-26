@@ -29,7 +29,10 @@ from release_lib import (
     ReleaseError,
     add_bytes,
     add_directory,
+    binary_name,
     check_linkage,
+    member_files,
+    target_of_root,
     extract_safely,
     fail,
     inspect_members,
@@ -118,7 +121,8 @@ def package_archive(args):
     if archive_path.exists():
         fail("refusing to overwrite archive: %s" % archive_path)
 
-    file_data = {"s1": binary.read_bytes()}
+    executable = binary_name(args.target)
+    file_data = {executable: binary.read_bytes()}
     for destination, source in package_sources.items():
         file_data[destination] = source.read_bytes()
     file_hashes = {name: hashlib.sha256(data).hexdigest() for name, data in sorted(file_data.items())}
@@ -158,8 +162,8 @@ def package_archive(args):
             with gzip.GzipFile(filename="", mode="wb", fileobj=raw_output, mtime=args.source_date_epoch) as compressed:
                 with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as archive:
                     add_directory(archive, root_name, args.source_date_epoch)
-                    for name in MEMBER_FILES:
-                        mode = 0o755 if name == "s1" else 0o644
+                    for name in member_files(args.target):
+                        mode = 0o755 if name == executable else 0o644
                         add_bytes(archive, root_name + "/" + name, file_data[name], mode, args.source_date_epoch)
     except Exception:
         archive_path.unlink(missing_ok=True)
@@ -198,7 +202,10 @@ def archive_layout(members):
     if len(roots) != 1:
         fail("archive must contain exactly one root directory")
     root_name = roots.pop()
-    expected_files = [root_name + "/" + name for name in MEMBER_FILES]
+    target = target_of_root(root_name)
+    if target is None:
+        fail("archive root does not name a supported target: %s" % root_name)
+    expected_files = [root_name + "/" + name for name in member_files(target)]
     if file_members != expected_files:
         fail("archive members do not match the required ordered package contents")
     if directory_members != [root_name]:
@@ -249,7 +256,8 @@ def check_expectations(args, build_info, archive_path, root_name):
 
 def check_file_hashes(root, build_info):
     hashes = build_info.get("files_sha256")
-    if not isinstance(hashes, dict) or set(hashes) != set(MEMBER_FILES) - {"BUILD-INFO.json"}:
+    expected = set(member_files(build_info["target"])) - {"BUILD-INFO.json"}
+    if not isinstance(hashes, dict) or set(hashes) != expected:
         fail("build-info file hash manifest is incomplete")
     for name, expected_hash in hashes.items():
         if not re.fullmatch(r"[0-9a-f]{64}", str(expected_hash)):
@@ -272,7 +280,7 @@ def verify_archive(args):
         build_info = load_build_info(root)
         check_expectations(args, build_info, archive_path, root_name)
         check_file_hashes(root, build_info)
-        binary = root / "s1"
+        binary = root / binary_name(build_info["target"])
         if not args.skip_execute:
             # Run from a directory outside both the source checkout and archive root.
             run_json_command(binary, "--version", "systemone-version-v1", build_info["version"], temporary_path)
@@ -289,15 +297,15 @@ def write_checksums(args):
     if output.exists():
         fail("refusing to overwrite checksum file: %s" % output)
     archives = sorted((Path(value).resolve() for value in args.archives), key=lambda path: path.name)
-    if len(archives) != 2 or len({path.name for path in archives}) != 2:
-        fail("exactly two distinct release archives are required")
+    if len(archives) != len(TARGETS) or len({path.name for path in archives}) != len(TARGETS):
+        fail("exactly %d distinct release archives are required" % len(TARGETS))
     versions = set()
     targets = set()
     for archive in archives:
         if not archive.is_file() or archive.parent != output.parent:
             fail("checksum inputs must be regular files beside the output: %s" % archive)
         match = re.fullmatch(
-            r"s1-v(.+)-(aarch64-apple-darwin|x86_64-unknown-linux-gnu)\.tar\.gz",
+            r"s1-v(.+)-(%s)\.tar\.gz" % "|".join(re.escape(target) for target in sorted(TARGETS)),
             archive.name,
         )
         if match is None or not VERSION_RE.fullmatch(match.group(1)):
@@ -345,7 +353,7 @@ def build_parser():
     notes = subparsers.add_parser("notes", help="print the CHANGELOG.md section for a release tag")
     notes.add_argument("--tag", required=True)
 
-    checksums = subparsers.add_parser("checksums", help="write SHA256SUMS for both release archives")
+    checksums = subparsers.add_parser("checksums", help="write SHA256SUMS for every release archive")
     checksums.add_argument("--output", required=True)
     checksums.add_argument("archives", nargs="+")
     return parser

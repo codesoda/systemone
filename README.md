@@ -119,10 +119,11 @@ needed**.
 | --- | --- |
 | Apple Silicon macOS | macOS 14 or newer; Metal acceleration included |
 | Linux x86-64 | glibc 2.35 or newer; system `libstdc++` and `libgcc`; CPU inference |
+| Windows x86-64 | Windows 10 1809 or newer; no Visual C++ Redistributable needed; CPU inference |
 
 You need internet access for the initial binary/model download and enough disk
 space for your chosen model. Model weights are not included in the archive. The
-macOS binary is not Developer ID signed or notarized. Windows is not built yet.
+macOS binary is not Developer ID signed or notarized.
 
 ### Install the CLI
 
@@ -153,6 +154,20 @@ s1 --version
 ```
 
 See [the installer source](install.sh) before running it, or follow the
+
+On Windows, run this in PowerShell (no administrator rights needed):
+
+```powershell
+irm https://raw.githubusercontent.com/codesoda/systemone/main/install.ps1 | iex
+```
+
+It verifies the archive's SHA-256 and contents, keeps each version under
+`%USERPROFILE%\.systemone\bin\`, and makes `%USERPROFILE%\.systemone\bin\s1.exe`
+the active version. It does not change `PATH` unless you pass `-AddToPath`:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/codesoda/systemone/main/install.ps1))) -Version v0.1.0 -AddToPath
+```
 [manual installation instructions](docs/RELEASE.md).
 
 ### Download a model
@@ -624,7 +639,9 @@ registry and re-verifies every cached file by SHA-256 before it says
   emulated. See [docs/gliner2-evaluation.md](docs/gliner2-evaluation.md).
 - **Validation differs by platform.** Only the Apple Silicon Metal build has
   been run with real weights. Linux CI builds, tests without weights, packages
-  and checks linkage. No Windows build.
+  and checks linkage. Windows CI runs the workspace tests, builds, packages,
+  checks that only system DLLs are imported, and installs the archive with
+  `install.ps1`; it has not been run with real weights.
 
 ## Documentation
 
@@ -647,7 +664,8 @@ registry and re-verifies every cached file by SHA-256 before it says
 - [x] GLiNER2 backend behind its upstream library gate (source build).
 - [ ] Laya and GLiNER2 in binary releases.
 - [ ] Cross-backend quality and performance fixtures.
-- [ ] Windows build; signed and notarized macOS binaries.
+- [x] Windows x86-64 build and PowerShell installer.
+- [ ] Signed and notarized macOS binaries.
 
 See [open issues](https://github.com/codesoda/systemone/issues) for the
 acceptance gate of each item.
