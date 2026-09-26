@@ -38,8 +38,10 @@ aliases = ["jev-latest"]
 [backends.cloud-typesafe.settings]
 api_key_env = "TYPESAFE_API_KEY"
 
-# The two gateway kinds below are planned. A build refuses them today with
-# "the adapter is not implemented in this build".
+# Vercel AI Gateway and OpenRouter: the same hosted Jev API through a
+# gateway, billed to that account. Like TypeSafe, the key is read from the
+# named environment variable and never lives in this file. OpenRouter answers
+# with its own model ID (for example typesafe/jev-1.13).
 [backends.cloud-vercel]
 kind = "vercel"
 enabled = false

@@ -9,6 +9,17 @@ workflow.
 
 ### Added
 
+- `vercel` and `openrouter` backend kinds: hosted Jev through Vercel AI
+  Gateway (`https://ai-gateway.vercel.sh/typesafe/v1/systemone`) and
+  OpenRouter (`https://openrouter.ai/api/v1/systemone`). They share the
+  TypeSafe adapter's transport and wire checks (fixed HTTPS destination, one
+  call per request, no redirects or retries, key redaction, strict body
+  validation). OpenRouter's model ID, `usage.cost`, request `id` and serving
+  `provider` are kept; the last two as `x-systemone-provider-request-id` and
+  the new `x-systemone-upstream-provider` header. OpenRouter's catalogue is
+  normalized to System One models. Tested against a mock server; opt-in live
+  smoke tests exist but have not been run yet (#3).
+
 - `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
   models (jaredpalmer/kev) on Qwen bases through the kev-core runtime
   (kev-rs), behind `kev-cpu` (Candle, Qwen3-generation checkpoints such as

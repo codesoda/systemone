@@ -17,13 +17,14 @@ configuration, not in code.
 · [Request a feature](https://github.com/codesoda/systemone/issues/new)
 
 > **Status:** the `s1` binary, layered configuration, HTTP service and the
-> OpenJev, Laya, GLiNER2 and TypeSafe backends are implemented. The local
-> backends were exercised against real models and TypeSafe against its live
-> hosted API, including the official TypeSafe JS SDK. Binary releases are
-> built by CI on `v*` tags and currently ship OpenJev and TypeSafe; Laya and
-> GLiNER2 are source builds. Vercel and OpenRouter backends are planned;
-> enabling one today is a clear configuration error, not a silent fallback.
-> Only the Apple Silicon build has been run with real weights.
+> OpenJev, Laya, Kev, GLiNER2, TypeSafe, Vercel AI Gateway and OpenRouter
+> backends are implemented. The local backends were exercised against real
+> models and TypeSafe against its live hosted API, including the official
+> TypeSafe JS SDK. The Vercel and OpenRouter passthroughs are tested against
+> a mock server only; they have not been run against the live services yet.
+> Binary releases are built by CI on `v*` tags and currently ship OpenJev and
+> the hosted kinds; Laya, Kev and GLiNER2 are source builds. Only the Apple
+> Silicon build has been run with real weights.
 
 ## Table of contents
 
@@ -91,8 +92,8 @@ coverage.
 | `kev` | Kev pointer-head decision models ([jaredpalmer/kev](https://github.com/jaredpalmer/kev)) on Qwen bases through kev-core (kev-rs) | **Available** with `--features kev-cpu` (Candle, Qwen3 checkpoints such as kev-0.6b) or `kev-metal` (MLX, Apple Silicon, Qwen3.5 hybrid checkpoints kev-0.8b/kev-4b). Parity and performance are gated in [kev-rs](https://github.com/codesoda/kev-rs) against frozen upstream goldens; not in binary releases yet |
 | `gliner2` | GLiNER2.5 zero-shot label classifier through [gliner2-rs](https://github.com/codesoda/gliner2-rs) and ONNX Runtime | **Available** with `--features gliner2` (CPU). Choice and Noul hold up on the held-out set; Score does not ([evaluation](docs/gliner2-evaluation.md)). Not in binary releases yet |
 | `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable. `s1 backends` reports it unavailable while that variable is unset or empty; the hosted API is never probed, because a probe request is billed |
-| `vercel` | Hosted Jev through Vercel AI Gateway | Planned |
-| `openrouter` | Hosted Jev through OpenRouter | Planned |
+| `vercel` | Hosted Jev through Vercel AI Gateway, `https://ai-gateway.vercel.sh/typesafe/v1/systemone` | **Available**, mock-tested; not yet run against the live gateway. Bearer AI Gateway API key or Vercel OIDC token from an environment variable (conventionally `AI_GATEWAY_API_KEY`); billed through the gateway |
+| `openrouter` | Hosted Jev through OpenRouter, `https://openrouter.ai/api/v1/systemone` | **Available**, mock-tested; not yet run against the live API. Bearer OpenRouter API key (conventionally `OPENROUTER_API_KEY`). Answers name OpenRouter's model ID (e.g. `typesafe/jev-1.13`); `usage.cost` is kept, and `id` / `provider` are returned as `x-systemone-provider-request-id` / `x-systemone-upstream-provider` |
 
 Enable only the instances you need. Disabled local backends do not load
 weights; disabled remote backends send no credential anywhere. `s1 backends`
@@ -579,6 +580,34 @@ instead and the answer carries whatever concrete identity the API picked for
 that alias, because model identity is passed through verbatim. The upstream
 catalogue lists aliases only and does not reveal the version behind them.
 
+Vercel AI Gateway and OpenRouter instances work the same way; only the
+destination, the key and the billing differ. Both destinations are fixed in
+code:
+
+```toml
+[backends.cloud-vercel]
+kind = "vercel"
+enabled = true
+
+[backends.cloud-vercel.settings]
+api_key_env = "AI_GATEWAY_API_KEY"     # gateway API key or Vercel OIDC token
+
+[backends.cloud-openrouter]
+kind = "openrouter"
+enabled = true
+
+[backends.cloud-openrouter.settings]
+api_key_env = "OPENROUTER_API_KEY"
+```
+
+OpenRouter maps bare Jev IDs onto its `typesafe/` namespace (`jev-latest` →
+`~typesafe/jev-latest`) and answers with its own model ID, which SystemOne
+passes through. Its `usage.cost` is kept in the body; its request `id` and
+serving `provider` are returned as the `x-systemone-provider-request-id` and
+`x-systemone-upstream-provider` headers. OpenRouter's `/api/v1/models` is its
+general Models API, so SystemOne never proxies it: `GET /v1/models` on
+`s1 serve` lists the configured instance model, as for every backend.
+
 **Key order.** The `answers` object follows the question order of the request
 and each Choice `probabilities` map follows the order the options were
 declared in, for hosted answers exactly as for local ones. That is key order
@@ -615,9 +644,10 @@ registry and re-verifies every cached file by SHA-256 before it says
   per request; Choice has 1–16 options, Score 2–16 levels; bodies are limited to
   1 MiB. Duplicate JSON keys are rejected. OpenJev accepts integer-only JSON
   state; floats are a validation error.
-- **Three local backend kinds and one hosted backend today.** The Vercel AI
-  Gateway and OpenRouter passthroughs are planned. Laya and GLiNER2 are not in
-  the binary releases yet (build from source).
+- **Vercel and OpenRouter are mock-tested only.** Their adapters share the
+  TypeSafe transport and wire checks, but have not been run against the live
+  services yet. Laya, Kev and GLiNER2 are not in the binary releases yet
+  (build from source).
 - **GLiNER2 Score is weak.** On the held-out set it scored 50% exact on every
   checkpoint and inverted an essay rubric. Use Choice with named categories
   where you can. GLiNER2 runs on CPU only; CoreML/CUDA are rejected, not
@@ -642,7 +672,7 @@ registry and re-verifies every cached file by SHA-256 before it says
 - [x] Resident Jev-compatible HTTP service, verified with the official JS SDK.
 - [x] TypeSafe hosted Jev backend (`kind = "typesafe"`).
 - [x] Tagged binary releases for Apple Silicon and Linux x86-64.
-- [ ] Hosted Jev passthrough (Vercel AI Gateway, OpenRouter).
+- [x] Hosted Jev passthrough (Vercel AI Gateway, OpenRouter), mock-tested.
 - [x] Laya backend behind laya-core's parity gate (source build).
 - [x] GLiNER2 backend behind its upstream library gate (source build).
 - [ ] Laya and GLiNER2 in binary releases.

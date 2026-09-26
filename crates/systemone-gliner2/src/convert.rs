@@ -250,6 +250,7 @@ pub fn project(
             fallback: None,
             probability_status: Some(PROBABILITY_STATUS.to_owned()),
             provider_request_id: None,
+            upstream_provider: None,
             truncation,
         },
     })

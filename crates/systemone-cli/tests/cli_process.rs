@@ -163,13 +163,33 @@ api_key_env = "OPENROUTER_API_KEY"
         "SYSTEMONE_BACKENDS__LOCAL__SETTINGS__THREADS"
     );
     assert_eq!(stdout["provenance"]["server.request_timeout_secs"], "cli");
-    // Disabled unimplemented kinds do not fail `config check`.
+    // A disabled hosted backend does not change `config check`.
     let (code, stdout, _) = run(&["config", "check"], "", &env, Some(root.path()));
     assert_eq!(code, 0, "{stdout}");
     assert_eq!(stdout["enabled_backends"], serde_json::json!(["local"]));
-    // Enabling an unimplemented kind is a clear failure.
-    let (code, _, stderr) = run(
+    // Enabling it passes: a missing key is an availability state reported
+    // by `s1 backends`, not a configuration error.
+    let (code, stdout, _) = run(
         &["--set", "backends.cloud.enabled=true", "config", "check"],
+        "",
+        &env,
+        Some(root.path()),
+    );
+    assert_eq!(code, 0, "{stdout}");
+    assert_eq!(
+        stdout["enabled_backends"],
+        serde_json::json!(["cloud", "local"])
+    );
+    // Invalid hosted settings are a clear failure that names the backend.
+    let (code, _, stderr) = run(
+        &[
+            "--set",
+            "backends.cloud.enabled=true",
+            "--set",
+            "backends.cloud.settings.api_key_env=not a name",
+            "config",
+            "check",
+        ],
         "",
         &env,
         Some(root.path()),
@@ -179,7 +199,7 @@ api_key_env = "OPENROUTER_API_KEY"
         stderr_json(&stderr)["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("openrouter")
+            .contains("cloud")
     );
     // Malformed project config fails every command except help/version.
     std::fs::write(root.path().join("systemone.config.toml"), "server = 1\n").unwrap();
@@ -421,4 +441,90 @@ fn one_shot_flag_commands_validate_before_loading() {
     );
     assert_eq!(code, 2);
     assert!(stderr_json(&stderr)["error"].is_object());
+}
+
+/// A CPU-local default plus hosted gateways selected per request. The
+/// gateway keys are unset, so each selected gateway fails with its own
+/// "key not set" reason; nothing is downloaded and no network call is made.
+#[test]
+fn hosted_gateways_are_selected_per_request_beside_a_local_default() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("systemone.config.toml"),
+        r#"default_backend = "local"
+
+[backends.local]
+kind = "openjev"
+enabled = true
+model = "qwen3-0.6b"
+
+[backends.local.settings]
+device = "cpu"
+offline = true
+
+[backends.gateway]
+kind = "vercel"
+enabled = true
+
+[backends.gateway.settings]
+api_key_env = "S1_TEST_UNSET_GATEWAY_KEY"
+
+[backends.router]
+kind = "openrouter"
+enabled = true
+
+[backends.router.settings]
+api_key_env = "S1_TEST_UNSET_ROUTER_KEY"
+"#,
+    )
+    .unwrap();
+    let home = root.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let env = [("HOME", home.to_str().unwrap())];
+
+    let (code, stdout, _) = run(&["backends"], "", &env, Some(root.path()));
+    assert_eq!(code, 0);
+    let listed: Vec<(String, String, bool)> = stdout["backends"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|backend| {
+            (
+                backend["id"].as_str().unwrap().to_owned(),
+                backend["kind"].as_str().unwrap().to_owned(),
+                backend["available"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert!(listed.contains(&("gateway".into(), "vercel".into(), false)));
+    assert!(listed.contains(&("router".into(), "openrouter".into(), false)));
+
+    for (backend, variable, key) in [
+        ("gateway", "S1_TEST_UNSET_GATEWAY_KEY", "AI Gateway API key"),
+        ("router", "S1_TEST_UNSET_ROUTER_KEY", "OpenRouter API key"),
+    ] {
+        let (code, _, stderr) = run(
+            &[
+                "noul",
+                "--backend",
+                backend,
+                "--state",
+                "x",
+                "--question",
+                "y?",
+            ],
+            "",
+            &env,
+            Some(root.path()),
+        );
+        assert_eq!(code, 1, "{stderr}");
+        let message = stderr_json(&stderr)["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(message.contains(variable), "{message}");
+        assert!(message.contains(key), "{message}");
+    }
+    // The hosted selections downloaded nothing into the OpenJev cache.
+    assert!(!home.join(".cache/openjev").exists());
 }

@@ -1,8 +1,20 @@
-//! TypeSafe Jev adapter (`kind = "typesafe"`).
+//! Hosted Jev passthrough adapters: `kind = "typesafe"`, `"vercel"` and
+//! `"openrouter"`.
 //!
-//! Calls `https://api.typesafe.ai/v1/systemone` (and `/v1/models`) with a
-//! bearer key resolved from the environment at load time. The base URL is
-//! fixed in code; a request can never choose its upstream. Responses are
+//! All three speak the TypeSafe System One wire shape and differ only in
+//! their [`Provider`] profile: base URL, endpoint paths, the catalogue shape
+//! of their models endpoint, and naming in messages.
+//!
+//! - TypeSafe: `https://api.typesafe.ai/v1/systemone` (direct).
+//! - Vercel AI Gateway: `https://ai-gateway.vercel.sh/typesafe/v1/systemone`,
+//!   billed through the gateway; a gateway API key or Vercel OIDC token.
+//! - OpenRouter: `https://openrouter.ai/api/v1/systemone`; accepts bare Jev
+//!   IDs and reports its own model ID (for example `typesafe/jev-1.13`) plus
+//!   `id`, `provider` and `usage.cost`, which are kept.
+//!
+//! Each call sends a bearer key resolved from the environment at load
+//! time. The base URL is fixed in code; a request can never choose its
+//! upstream. Responses are
 //! passed through verbatim after strict parsing — SystemOne preserves
 //! upstream answers, usage and model identity, and refuses to repair
 //! corrupt distributions. Only key order is normalized: answers and
@@ -33,8 +45,77 @@ use crate::transport::{MAX_RESPONSE_BYTES, RemoteError, RemoteReply, RemoteTrans
 
 /// Production base URL of the TypeSafe Jev API.
 pub const BASE_URL: &str = "https://api.typesafe.ai";
-const SYSTEMONE_PATH: &str = "/v1/systemone";
-const MODELS_PATH: &str = "/v1/models";
+
+/// Shape of a provider's models endpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Catalogue {
+    /// TypeSafe's `{"models": [{"name", "description", "release_date"}]}`.
+    Typesafe,
+    /// OpenRouter's Models API `{"data": [{"id", "name", "created"}]}`,
+    /// normalized to System One models (IDs under `typesafe/`).
+    OpenRouter,
+}
+
+/// Everything that differs between the hosted Jev providers.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Provider {
+    pub kind: ProviderKind,
+    /// Human name used in messages.
+    pub name: &'static str,
+    /// Production base URL (scheme and host only).
+    pub base_url: &'static str,
+    pub systemone_path: &'static str,
+    pub models_path: &'static str,
+    pub catalogue: Catalogue,
+    /// Conventional environment variable for the key, used by `s1 setup`.
+    pub default_api_key_env: &'static str,
+    /// What the key is, for the "not set" message.
+    pub key_description: &'static str,
+}
+
+pub const TYPESAFE: Provider = Provider {
+    kind: ProviderKind::Typesafe,
+    name: "TypeSafe",
+    base_url: BASE_URL,
+    systemone_path: "/v1/systemone",
+    models_path: "/v1/models",
+    catalogue: Catalogue::Typesafe,
+    default_api_key_env: "TYPESAFE_API_KEY",
+    key_description: "the TypeSafe API key",
+};
+
+pub const VERCEL: Provider = Provider {
+    kind: ProviderKind::Vercel,
+    name: "Vercel AI Gateway",
+    base_url: "https://ai-gateway.vercel.sh",
+    systemone_path: "/typesafe/v1/systemone",
+    models_path: "/typesafe/v1/models",
+    catalogue: Catalogue::Typesafe,
+    default_api_key_env: "AI_GATEWAY_API_KEY",
+    key_description: "an AI Gateway API key or Vercel OIDC token",
+};
+
+pub const OPENROUTER: Provider = Provider {
+    kind: ProviderKind::OpenRouter,
+    name: "OpenRouter",
+    base_url: "https://openrouter.ai",
+    systemone_path: "/api/v1/systemone",
+    models_path: "/api/v1/models",
+    catalogue: Catalogue::OpenRouter,
+    default_api_key_env: "OPENROUTER_API_KEY",
+    key_description: "the OpenRouter API key",
+};
+
+/// The provider profile for a hosted kind, if `kind` is one.
+#[must_use]
+pub fn provider(kind: ProviderKind) -> Option<&'static Provider> {
+    match kind {
+        ProviderKind::Typesafe => Some(&TYPESAFE),
+        ProviderKind::Vercel => Some(&VERCEL),
+        ProviderKind::OpenRouter => Some(&OPENROUTER),
+        _ => None,
+    }
+}
 /// Model used when the backend sets none.
 pub const DEFAULT_MODEL: &str = "jev-latest";
 /// Half of one Jev wire step. Upstream probabilities arrive at wire
@@ -52,41 +133,41 @@ const DEFAULT_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(120);
 /// Longest upstream error message passed through to callers.
 const MAX_ERROR_MESSAGE_CHARS: usize = 500;
 
-const CONFIDENCE_DEFINITION: &str = "Self-reported by the TypeSafe Jev API and passed through unchanged; SystemOne does not recompute it.";
-const PROBABILITY_DEFINITION: &str = "Normalized distributions reported by the TypeSafe Jev API and passed through unchanged; SystemOne refuses to renormalize them.";
-
-/// Typed settings for `kind = "typesafe"`.
+/// Typed settings for the hosted kinds.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TypesafeSettings {
+pub struct HostedSettings {
     /// Environment variable holding the API key. The key is read at load
     /// time; it never lives in configuration.
     pub api_key_env: String,
 }
 
-/// A configured, validated TypeSafe backend that has loaded nothing.
+/// A configured, validated hosted backend that has loaded nothing.
 ///
 /// Construction validates settings only; [`Backend::load`] resolves the
 /// credential and builds the transport.
-pub struct TypesafeBackend {
+pub struct HostedBackend {
+    provider: &'static Provider,
     id: BackendId,
     model: String,
     aliases: Vec<String>,
     api_key_env: String,
 }
 
-impl TypesafeBackend {
+impl HostedBackend {
     pub fn new(
+        provider: &'static Provider,
         id: BackendId,
         model: Option<&str>,
         aliases: Vec<String>,
-        settings: &TypesafeSettings,
+        settings: &HostedSettings,
     ) -> Result<Self, HostError> {
         let api_key_env = settings.api_key_env.trim().to_owned();
         if api_key_env.is_empty() {
-            return Err(HostError::validation(
-                "settings.api_key_env must name the environment variable holding the TypeSafe API key",
-            ));
+            return Err(HostError::validation(format!(
+                "settings.api_key_env must name the environment variable holding {}",
+                provider.key_description
+            )));
         }
         if api_key_env.contains('=') || api_key_env.chars().any(char::is_whitespace) {
             return Err(HostError::validation(
@@ -98,6 +179,7 @@ impl TypesafeBackend {
             return Err(HostError::validation("model must not be empty"));
         }
         Ok(Self {
+            provider,
             id,
             model: model.to_owned(),
             aliases,
@@ -105,8 +187,8 @@ impl TypesafeBackend {
         })
     }
 
-    /// Load against an explicit base URL. Outside tests this is always
-    /// [`BASE_URL`]; the base URL is never request-supplied.
+    /// Load against an explicit base URL. Outside tests this is always the
+    /// provider's base URL; the base URL is never request-supplied.
     pub(crate) fn load_with_base(
         &self,
         base_url: &str,
@@ -151,8 +233,8 @@ impl TypesafeBackend {
                 self.api_key_env
             )),
             None => Some(format!(
-                "environment variable {} (backends.{}.settings.api_key_env) is not set; export the TypeSafe API key",
-                self.api_key_env, self.id
+                "environment variable {} (backends.{}.settings.api_key_env) is not set; export {}",
+                self.api_key_env, self.id, self.provider.key_description
             )),
         }
     }
@@ -178,12 +260,13 @@ impl TypesafeBackend {
             unusable => {
                 return Err(HostError::unavailable(
                     self.unavailable_reason_for(unusable.as_deref())
-                        .unwrap_or_else(|| "typesafe backend unavailable".to_owned()),
+                        .unwrap_or_else(|| format!("{} backend unavailable", self.provider.kind)),
                 ));
             }
         };
         let transport = RemoteTransport::new()?;
-        Ok(Box::new(TypesafeHost::new(
+        Ok(Box::new(HostedHost::new(
+            self.provider,
             transport,
             base,
             self.model.clone(),
@@ -193,20 +276,20 @@ impl TypesafeBackend {
     }
 }
 
-impl Backend for TypesafeBackend {
+impl Backend for HostedBackend {
     fn id(&self) -> &BackendId {
         &self.id
     }
 
     fn kind(&self) -> ProviderKind {
-        ProviderKind::Typesafe
+        self.provider.kind
     }
 
     fn describe(&self) -> BackendDescription {
         let reason = self.unavailable_reason();
         BackendDescription {
             id: self.id.clone(),
-            kind: ProviderKind::Typesafe,
+            kind: self.provider.kind,
             model: self.model.clone(),
             available: reason.is_none(),
             unavailable_reason: reason,
@@ -216,33 +299,35 @@ impl Backend for TypesafeBackend {
     }
 
     fn load(&self) -> Result<Box<dyn DecisionHost>, HostError> {
-        self.load_with_base(BASE_URL)
+        self.load_with_base(self.provider.base_url)
     }
 }
 
-/// One entry of the TypeSafe `/v1/models` catalogue, kept exactly as the
-/// upstream reported it (no catalogue normalization).
+/// One catalogue entry in TypeSafe's shape. TypeSafe and Vercel entries are
+/// kept exactly as reported; OpenRouter entries are normalized to it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct TypesafeModel {
+pub struct HostedModel {
     pub name: String,
     pub description: String,
     pub release_date: String,
 }
 
-/// A loaded TypeSafe host: one resident HTTP passthrough.
+/// A loaded hosted host: one resident HTTP passthrough.
 ///
 /// `evaluate` blocks on the shared transport, which the core host contract
 /// permits for hosted kinds. One request is one upstream call.
-pub struct TypesafeHost {
+pub struct HostedHost {
+    provider: &'static Provider,
     transport: RemoteTransport,
     base_url: Url,
     capabilities: Capabilities,
     api_key: String,
 }
 
-impl TypesafeHost {
+impl HostedHost {
     #[must_use]
     pub fn new(
+        provider: &'static Provider,
         transport: RemoteTransport,
         base_url: Url,
         model: String,
@@ -250,10 +335,10 @@ impl TypesafeHost {
         api_key: String,
     ) -> Self {
         let capabilities = Capabilities {
-            kind: ProviderKind::Typesafe,
+            kind: provider.kind,
             model: ModelIdentity {
                 id: model.clone(),
-                description: format!("TypeSafe hosted Jev model {model}"),
+                description: format!("Jev model {model} hosted by {}", provider.name),
                 // The catalogue, not the adapter, owns release dates.
                 release_date: "unknown".to_owned(),
             },
@@ -264,13 +349,20 @@ impl TypesafeHost {
             max_questions: None,
             max_options: None,
             max_expanded_state_bytes: None,
-            confidence_definition: CONFIDENCE_DEFINITION.to_owned(),
-            probability_definition: PROBABILITY_DEFINITION.to_owned(),
+            confidence_definition: format!(
+                "Self-reported by {} and passed through unchanged; SystemOne does not recompute it.",
+                provider.name
+            ),
+            probability_definition: format!(
+                "Normalized distributions reported by {} and passed through unchanged; SystemOne refuses to renormalize them.",
+                provider.name
+            ),
             execution_modes: vec!["remote".to_owned()],
             device: None,
             batches_questions: true,
         };
         Self {
+            provider,
             transport,
             base_url,
             capabilities,
@@ -280,13 +372,13 @@ impl TypesafeHost {
 
     fn systemone_url(&self) -> Url {
         self.base_url
-            .join(SYSTEMONE_PATH)
+            .join(self.provider.systemone_path)
             .expect("static relative path")
     }
 
     fn models_url(&self) -> Url {
         self.base_url
-            .join(MODELS_PATH)
+            .join(self.provider.models_path)
             .expect("static relative path")
     }
 
@@ -304,7 +396,7 @@ impl TypesafeHost {
     fn unreachable(&self, error: RemoteError) -> HostError {
         match error {
             RemoteError::Unreachable(message) => HostError::unavailable(
-                self.sanitize(&format!("TypeSafe API unreachable: {message}")),
+                self.sanitize(&format!("{} unreachable: {message}", self.provider.name)),
             ),
             other => unreachable!("caller handled {other:?} first"),
         }
@@ -340,6 +432,27 @@ impl TypesafeHost {
             return HostError::Upstream {
                 status: Some(reply.status),
                 code: Some(error_type.unwrap_or("upstream_error").to_owned()),
+                message: self.sanitize(&message),
+            };
+        }
+        // OpenRouter's shape: `{"error": {"code": 429, "message": "..."}}`.
+        if let Some(Value::Object(error)) = fields.get("error") {
+            let code = match error.get("code") {
+                Some(Value::String(code)) if !code.is_empty() => code.clone(),
+                Some(Value::Number(code)) => code.to_string(),
+                _ => "upstream_error".to_owned(),
+            };
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .filter(|message| !message.is_empty())
+                .map_or_else(
+                    || format!("upstream returned HTTP {}", reply.status),
+                    str::to_owned,
+                );
+            return HostError::Upstream {
+                status: Some(reply.status),
+                code: Some(code),
                 message: self.sanitize(&message),
             };
         }
@@ -401,7 +514,7 @@ impl TypesafeHost {
 
     /// Fetch the upstream `/v1/models` catalogue. Outside `evaluate`; used
     /// by tests and the opt-in live smoke test.
-    pub fn list_models(&self, timeout: Duration) -> Result<Vec<TypesafeModel>, HostError> {
+    pub fn list_models(&self, timeout: Duration) -> Result<Vec<HostedModel>, HostError> {
         let reply = match self.transport.send(
             Method::GET,
             &self.models_url(),
@@ -426,12 +539,15 @@ impl TypesafeHost {
         if !(200..300).contains(&reply.status) {
             return Err(self.upstream_error(&reply));
         }
-        parse_models_response(&reply.body)
-            .map_err(|error| self.invalid_body(reply.status, &error.message))
+        match self.provider.catalogue {
+            Catalogue::Typesafe => parse_models_response(&reply.body),
+            Catalogue::OpenRouter => parse_openrouter_models(&reply.body),
+        }
+        .map_err(|error| self.invalid_body(reply.status, &error.message))
     }
 }
 
-impl DecisionHost for TypesafeHost {
+impl DecisionHost for HostedHost {
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
     }
@@ -519,7 +635,7 @@ fn distribution_tolerance(response: &DecisionResponse) -> f64 {
 /// Parse the TypeSafe `/v1/models` catalogue body: an array of objects with
 /// a required `name` string and optional `description`/`release_date`
 /// strings. Extra fields are ignored; entries are kept exactly as reported.
-pub fn parse_models_response(bytes: &[u8]) -> Result<Vec<TypesafeModel>, WireError> {
+pub fn parse_models_response(bytes: &[u8]) -> Result<Vec<HostedModel>, WireError> {
     let text = std::str::from_utf8(bytes).map_err(|_| WireError {
         error_type: "invalid_json",
         message: "models response must be valid UTF-8 JSON".to_owned(),
@@ -564,7 +680,7 @@ pub fn parse_models_response(bytes: &[u8]) -> Result<Vec<TypesafeModel>, WireErr
                 error_type: "validation_error",
                 message: format!("models[{index}].name must be a nonempty string"),
             })?;
-        models.push(TypesafeModel {
+        models.push(HostedModel {
             name: name.to_owned(),
             description: fields
                 .get("description")
@@ -576,6 +692,61 @@ pub fn parse_models_response(bytes: &[u8]) -> Result<Vec<TypesafeModel>, WireErr
                 .and_then(Value::as_str)
                 .unwrap_or("unknown")
                 .to_owned(),
+        });
+    }
+    Ok(models)
+}
+
+/// Parse OpenRouter's Models API body (`{"data": [{"id", "name",
+/// "created"}]}`) into System One catalogue entries: only IDs under the
+/// `typesafe/` author namespace are kept, so the result lists models the
+/// System One endpoint can serve.
+pub fn parse_openrouter_models(bytes: &[u8]) -> Result<Vec<HostedModel>, WireError> {
+    let text = std::str::from_utf8(bytes).map_err(|_| WireError {
+        error_type: "invalid_json",
+        message: "models response must be valid UTF-8 JSON".to_owned(),
+    })?;
+    let entries = match wire::parse_strict(text)? {
+        Value::Object(fields) => match fields.get("data") {
+            Some(Value::Array(entries)) => entries.clone(),
+            _ => {
+                return Err(WireError {
+                    error_type: "validation_error",
+                    message: "OpenRouter models response must be {\"data\": [...]}".to_owned(),
+                });
+            }
+        },
+        _ => {
+            return Err(WireError {
+                error_type: "validation_error",
+                message: "OpenRouter models response must be {\"data\": [...]}".to_owned(),
+            });
+        }
+    };
+    let mut models = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| WireError {
+                error_type: "validation_error",
+                message: format!("data[{index}].id must be a nonempty string"),
+            })?;
+        if !id.starts_with("typesafe/") {
+            continue;
+        }
+        models.push(HostedModel {
+            name: id.to_owned(),
+            description: entry
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            release_date: entry
+                .get("created")
+                .and_then(Value::as_i64)
+                .map_or_else(|| "unknown".to_owned(), |created| created.to_string()),
         });
     }
     Ok(models)

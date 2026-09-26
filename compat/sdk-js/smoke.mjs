@@ -18,6 +18,9 @@ const expectations = {
   kev: { outputTokens: "counted", floatState: "accepted" },
   gliner2: { outputTokens: "zero", floatState: "accepted" },
   typesafe: { outputTokens: "counted", floatState: "accepted" },
+  // Gateways pass the TypeSafe wire shape through unchanged.
+  vercel: { outputTokens: "counted", floatState: "accepted" },
+  openrouter: { outputTokens: "counted", floatState: "accepted" },
 };
 const backendKind = process.env.SYSTEMONE_SMOKE_BACKEND ?? "openjev";
 // `Object.hasOwn` and not a truthiness test: a plain object inherits
