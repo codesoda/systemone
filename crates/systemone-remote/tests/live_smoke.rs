@@ -144,7 +144,11 @@ fn live_gateway_round_trip(provider: &'static Provider, list_catalogue: bool) {
             models.iter().map(|model| &model.name).collect::<Vec<_>>()
         );
     }
-    let body = br#"{"state":{"topic":"live smoke"},"questions":{"pick":{"type":"choice","criteria":{"alpha":null,"beta":null}},"worth":{"type":"noul","criteria":{"true":"it works"}}}}"#;
+    // OpenRouter validates more strictly than TypeSafe (checked live on
+    // 2026-09-26): every question needs `instructions`, a Noul `criteria`
+    // needs both `true` and `false` (or none), and Choice `criteria` must be
+    // an object. The gateway smoke meets all three, so it runs on both.
+    let body = br#"{"state":{"topic":"live smoke"},"questions":{"pick":{"type":"choice","instructions":"Which label fits the topic better?","criteria":{"alpha":"the first option","beta":"the second option"}},"worth":{"type":"noul","instructions":"Does this smoke test work?","criteria":{"true":"it works","false":"it fails"}}}}"#;
     let request: DecisionRequest = wire::parse_request(body)
         .expect("parse smoke request")
         .request;

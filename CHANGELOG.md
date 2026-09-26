@@ -17,8 +17,13 @@ workflow.
   validation). OpenRouter's model ID, `usage.cost`, request `id` and serving
   `provider` are kept; the last two as `x-systemone-provider-request-id` and
   the new `x-systemone-upstream-provider` header. OpenRouter's catalogue is
-  normalized to System One models. Tested against a mock server; opt-in live
-  smoke tests exist but have not been run yet (#3).
+  normalized to System One models. Both are tested against a mock server.
+  OpenRouter was also run live on 2026-09-26 (opt-in smoke test, the CLI and
+  `s1 serve`): `jev-latest` was served as `typesafe/jev-1.13-20260917`, with
+  `usage.cost` about $0.000013 per request and `provider: TypeSafe`.
+  OpenRouter validates more strictly than TypeSafe (instructions required,
+  Noul criteria need both outcomes, Choice criteria must be an object); its
+  400 is passed through. Vercel has not been run live yet (#3).
 
 - `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
   models (jaredpalmer/kev) on Qwen bases through the kev-core runtime
