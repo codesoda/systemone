@@ -1,19 +1,19 @@
-//! Shared hosted HTTP transport and direct Jev passthrough adapters.
+//! Shared hosted HTTP transport and the hosted Jev passthrough adapters.
 //!
 //! [`transport`] holds the single shared HTTP client policy used by every
 //! hosted kind: one send per request (no retries, no provider fallback), no
 //! redirects, no client header forwarding, and a bounded response body.
-//! [`typesafe`] is the TypeSafe Jev adapter (`kind = "typesafe"`)
-//! that calls `https://api.typesafe.ai/v1/systemone` without an
-//! intermediary.
+//! [`hosted`] is the passthrough adapter for `kind = "typesafe"` (direct),
+//! `"vercel"` (Vercel AI Gateway) and `"openrouter"`; the three differ only
+//! in their [`Provider`] profile.
 //!
 //! Hosted passthroughs block on their own HTTP client inside `evaluate`,
-//! which the core host contract permits. Each adapter holds its base URL
-//! as a code constant; neither a request nor operator configuration can
-//! choose the upstream it is forwarded to.
+//! which the core host contract permits. Each provider's base URL is a code
+//! constant; neither a request nor operator configuration can choose the
+//! upstream it is forwarded to.
 
+pub mod hosted;
 pub mod transport;
-pub mod typesafe;
 
 /// How this build links the hosted adapters.
 ///
@@ -26,10 +26,11 @@ pub const fn compiled_feature() -> &'static str {
 }
 
 #[cfg(test)]
-mod typesafe_tests;
+mod hosted_tests;
 
-pub use transport::{MAX_RESPONSE_BYTES, RemoteError, RemoteReply, RemoteTransport};
-pub use typesafe::{
-    BASE_URL, DEFAULT_MODEL, TypesafeBackend, TypesafeHost, TypesafeModel, TypesafeSettings,
-    parse_models_response,
+pub use hosted::{
+    BASE_URL, Catalogue, DEFAULT_MODEL, HostedBackend, HostedHost, HostedModel, HostedSettings,
+    OPENROUTER, Provider, TYPESAFE, VERCEL, parse_models_response, parse_openrouter_models,
+    provider,
 };
+pub use transport::{MAX_RESPONSE_BYTES, RemoteError, RemoteReply, RemoteTransport};

@@ -17,8 +17,9 @@ use systemone_core::{
 use systemone_http::wire;
 
 use super::{
-    TypesafeBackend, TypesafeHost, TypesafeSettings, parse_models_response,
-    typesafe::{BASE_URL, DEFAULT_MODEL, TypesafeModel},
+    HostedBackend, HostedHost, HostedSettings,
+    hosted::{BASE_URL, DEFAULT_MODEL, HostedModel, OPENROUTER, TYPESAFE, VERCEL},
+    parse_models_response,
 };
 use crate::transport::{MAX_RESPONSE_BYTES, RemoteTransport};
 
@@ -202,8 +203,9 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 /// A non-secret test key. Its value only matters for the redaction test.
 const TEST_KEY: &str = "sk-test-not-a-real-credential";
 
-fn host(base: &Url) -> TypesafeHost {
-    TypesafeHost::new(
+fn host(base: &Url) -> HostedHost {
+    HostedHost::new(
+        &TYPESAFE,
         RemoteTransport::new().expect("client"),
         base.clone(),
         "jev-latest".to_owned(),
@@ -212,12 +214,13 @@ fn host(base: &Url) -> TypesafeHost {
     )
 }
 
-fn backend(aliases: Vec<String>) -> TypesafeBackend {
-    TypesafeBackend::new(
+fn backend(aliases: Vec<String>) -> HostedBackend {
+    HostedBackend::new(
+        &TYPESAFE,
         BackendId::new("direct").expect("backend id"),
         None,
         aliases,
-        &TypesafeSettings {
+        &HostedSettings {
             api_key_env: "TYPESAFE_API_KEY".to_owned(),
         },
     )
@@ -248,12 +251,12 @@ fn three_label_request() -> DecisionRequest {
         .request
 }
 
-fn evaluate(host: &mut TypesafeHost) -> Result<DecisionResponse, HostError> {
+fn evaluate(host: &mut HostedHost) -> Result<DecisionResponse, HostError> {
     evaluate_with(host, &request())
 }
 
 fn evaluate_with(
-    host: &mut TypesafeHost,
+    host: &mut HostedHost,
     request: &DecisionRequest,
 ) -> Result<DecisionResponse, HostError> {
     use systemone_core::DecisionHost;
@@ -499,12 +502,12 @@ fn model_catalogue_parses_and_is_not_normalized() {
     assert_eq!(
         models,
         vec![
-            TypesafeModel {
+            HostedModel {
                 name: "jev-latest".to_owned(),
                 description: "TypeSafe Jev".to_owned(),
                 release_date: "2026-01-15".to_owned(),
             },
-            TypesafeModel {
+            HostedModel {
                 name: "jev-preview".to_owned(),
                 description: String::new(),
                 release_date: "unknown".to_owned(),
@@ -644,39 +647,42 @@ fn load_builds_host_and_describe_hides_the_secret() {
 fn settings_reject_secret_values_and_bad_env_names() {
     let id = BackendId::new("direct").expect("backend id");
     assert!(
-        TypesafeBackend::new(
+        HostedBackend::new(
+            &TYPESAFE,
             id.clone(),
             None,
             vec![],
-            &TypesafeSettings {
+            &HostedSettings {
                 api_key_env: "  ".to_owned(),
             },
         )
         .is_err()
     );
     assert!(
-        TypesafeBackend::new(
+        HostedBackend::new(
+            &TYPESAFE,
             id.clone(),
             None,
             vec![],
-            &TypesafeSettings {
+            &HostedSettings {
                 api_key_env: "KEY=s3cret".to_owned(),
             },
         )
         .is_err()
     );
     assert!(
-        TypesafeBackend::new(
+        HostedBackend::new(
+            &TYPESAFE,
             id,
             Some(""),
             vec![],
-            &TypesafeSettings {
+            &HostedSettings {
                 api_key_env: "OK_VAR".to_owned(),
             },
         )
         .is_err()
     );
-    assert!(serde_json::from_str::<TypesafeSettings>(r#"{"api_key_env":"X","extra":1}"#).is_err());
+    assert!(serde_json::from_str::<HostedSettings>(r#"{"api_key_env":"X","extra":1}"#).is_err());
 }
 
 /// Floats in state reach the API unchanged. The live TypeSafe API answers
@@ -962,8 +968,9 @@ fn score_levels_follow_the_declared_scale() {
 
 /// A pinned instance: the concrete version is the served model and the
 /// upstream alias is accepted as a request selector.
-fn pinned_host(base: &Url) -> TypesafeHost {
-    TypesafeHost::new(
+fn pinned_host(base: &Url) -> HostedHost {
+    HostedHost::new(
+        &TYPESAFE,
         RemoteTransport::new().expect("client"),
         base.clone(),
         "jev-1.13.0".to_owned(),
@@ -972,12 +979,13 @@ fn pinned_host(base: &Url) -> TypesafeHost {
     )
 }
 
-fn pinned_backend() -> TypesafeBackend {
-    TypesafeBackend::new(
+fn pinned_backend() -> HostedBackend {
+    HostedBackend::new(
+        &TYPESAFE,
         BackendId::new("hosted").expect("backend id"),
         Some("jev-1.13.0"),
         vec!["jev-latest".to_owned()],
-        &TypesafeSettings {
+        &HostedSettings {
             api_key_env: "TYPESAFE_API_KEY".to_owned(),
         },
     )
@@ -1025,9 +1033,9 @@ async fn models_route_serves_one_card_named_after_the_configured_model() {
     use systemone_http::{AppState, Registry, RegistryEntry, ServeOptions, router};
     use tower::ServiceExt as _;
 
-    /// Loads a real `TypesafeHost` against a base URL the test chooses.
+    /// Loads a real `HostedHost` against a base URL the test chooses.
     struct MockBaseBackend {
-        inner: TypesafeBackend,
+        inner: HostedBackend,
         base: String,
     }
 
@@ -1092,4 +1100,231 @@ async fn models_route_serves_one_card_named_after_the_configured_model() {
     let models = body["models"].as_array().expect("models array");
     assert_eq!(models.len(), 1, "one instance serves one model: {body}");
     assert_eq!(models[0]["name"], "jev-1.13.0");
+}
+
+// ---- Vercel AI Gateway and OpenRouter ---------------------------------------
+
+use systemone_core::DecisionHost as _;
+
+fn gateway_host(provider: &'static crate::Provider, base: &Url) -> HostedHost {
+    HostedHost::new(
+        provider,
+        RemoteTransport::new().expect("client"),
+        base.clone(),
+        "jev-latest".to_owned(),
+        vec![],
+        TEST_KEY.to_owned(),
+    )
+}
+
+fn gateway_backend(provider: &'static crate::Provider) -> HostedBackend {
+    HostedBackend::new(
+        provider,
+        BackendId::new("cloud").expect("backend id"),
+        None,
+        vec![],
+        &HostedSettings {
+            api_key_env: provider.default_api_key_env.to_owned(),
+        },
+    )
+    .expect("backend")
+}
+
+#[test]
+fn gateway_profiles_are_fixed_https_endpoints() {
+    assert_eq!(VERCEL.base_url, "https://ai-gateway.vercel.sh");
+    assert_eq!(VERCEL.systemone_path, "/typesafe/v1/systemone");
+    assert_eq!(VERCEL.models_path, "/typesafe/v1/models");
+    assert_eq!(OPENROUTER.base_url, "https://openrouter.ai");
+    assert_eq!(OPENROUTER.systemone_path, "/api/v1/systemone");
+    assert_eq!(OPENROUTER.models_path, "/api/v1/models");
+    for provider in [&TYPESAFE, &VERCEL, &OPENROUTER] {
+        RemoteTransport::validate_base_url(&Url::parse(provider.base_url).unwrap()).unwrap();
+        assert_eq!(crate::provider(provider.kind), Some(provider));
+    }
+    assert_eq!(crate::provider(systemone_core::ProviderKind::Laya), None);
+}
+
+#[test]
+fn vercel_posts_to_its_typesafe_path_with_the_bearer_and_no_selector() {
+    let server = MockServer::start(Script::Reply(200, upstream_ok()));
+    let mut host = gateway_host(&VERCEL, &server.base());
+    let response = evaluate(&mut host).expect("vercel success");
+    let sent = server.single();
+    assert_eq!(sent.method, "POST");
+    assert_eq!(sent.path, "/typesafe/v1/systemone");
+    assert_eq!(
+        sent.authorization.as_deref(),
+        Some(format!("Bearer {TEST_KEY}").as_str())
+    );
+    let body = sent.json();
+    assert!(
+        body.get("backend").is_none(),
+        "selectors never leave SystemOne"
+    );
+    assert_eq!(body["model"], "jev-latest");
+    assert_eq!(response.model, "jev-latest");
+    assert_eq!(
+        host.capabilities().kind,
+        systemone_core::ProviderKind::Vercel
+    );
+}
+
+#[test]
+fn openrouter_keeps_its_model_id_request_id_provider_and_cost() {
+    let body = r#"{"id":"gen-123","provider":"TypeSafe","model":"typesafe/jev-1.13","usage":{"input_tokens":120,"output_tokens":30,"cost":0.0031},"answers":{"pick":{"type":"choice","choice":"beta","probabilities":{"alpha":0.2,"beta":0.8},"confidence":0.6},"worth":{"type":"noul","noul":0.41}}}"#;
+    let server = MockServer::start(Script::Reply(200, body.to_owned()));
+    let mut host = gateway_host(&OPENROUTER, &server.base());
+    let response = evaluate(&mut host).expect("openrouter success");
+    assert_eq!(server.single().path, "/api/v1/systemone");
+    assert_eq!(response.model, "typesafe/jev-1.13");
+    assert_eq!(response.usage.cost, Some(0.0031));
+    assert_eq!(
+        response.diagnostics.provider_request_id.as_deref(),
+        Some("gen-123")
+    );
+    assert_eq!(
+        response.diagnostics.upstream_provider.as_deref(),
+        Some("TypeSafe")
+    );
+    let rendered = wire::render_response(&response);
+    assert_eq!(rendered.usage["cost"], serde_json::json!(0.0031));
+}
+
+#[test]
+fn openrouter_error_envelope_and_rate_limit_pass_through_redacted() {
+    let body = format!(r#"{{"error":{{"code":429,"message":"Rate limited for key {TEST_KEY}"}}}}"#);
+    let server = MockServer::start(Script::Reply(429, body));
+    let mut host = gateway_host(&OPENROUTER, &server.base());
+    let error = evaluate(&mut host).expect_err("429");
+    match error {
+        HostError::Upstream {
+            status,
+            code,
+            message,
+        } => {
+            assert_eq!(status, Some(429));
+            assert_eq!(code.as_deref(), Some("429"));
+            assert!(message.contains("[redacted]"), "{message}");
+            assert!(!message.contains(TEST_KEY), "{message}");
+        }
+        other => panic!("expected an upstream error, got {other:?}"),
+    }
+    // One send, no retry.
+    server.single();
+}
+
+#[test]
+fn gateway_failures_share_the_transport_policy() {
+    let slow = MockServer::start(Script::DelayedReply(
+        Duration::from_millis(600),
+        200,
+        upstream_ok(),
+    ));
+    let mut host = gateway_host(&VERCEL, &slow.base());
+    let context = CallContext::new(
+        "slow",
+        Some(std::time::Instant::now() + Duration::from_millis(150)),
+    );
+    let error = host.evaluate(&request(), &context).expect_err("timeout");
+    assert!(matches!(error, HostError::Timeout), "{error:?}");
+    slow.single();
+
+    let huge = MockServer::start(Script::Huge);
+    let mut host = gateway_host(&OPENROUTER, &huge.base());
+    let error = evaluate(&mut host).expect_err("oversize");
+    assert!(
+        matches!(&error, HostError::Upstream { code: Some(code), .. } if code == "response_too_large"),
+        "{error:?}"
+    );
+
+    let malformed = MockServer::start(Script::Reply(200, r#"{"model":"jev-latest"}"#.to_owned()));
+    let mut host = gateway_host(&VERCEL, &malformed.base());
+    let error = evaluate(&mut host).expect_err("malformed");
+    expect_invalid_upstream_body(&error);
+
+    let redirect = MockServer::start(Script::Reply(302, String::new()));
+    let mut host = gateway_host(&OPENROUTER, &redirect.base());
+    let error = evaluate(&mut host).expect_err("redirect");
+    assert!(
+        matches!(
+            error,
+            HostError::Upstream {
+                status: Some(302),
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    redirect.single();
+}
+
+#[test]
+fn vercel_catalogue_uses_the_typesafe_shape() {
+    let server = MockServer::start(Script::Reply(
+        200,
+        r#"{"models":[{"name":"jev-1.13","description":"Jev","release_date":"2026-09-15"}]}"#
+            .to_owned(),
+    ));
+    let host = gateway_host(&VERCEL, &server.base());
+    let models = host.list_models(Duration::from_secs(5)).expect("catalogue");
+    assert_eq!(server.single().path, "/typesafe/v1/models");
+    assert_eq!(models[0].name, "jev-1.13");
+}
+
+#[test]
+fn openrouter_catalogue_is_normalized_to_system_one_models() {
+    let server = MockServer::start(Script::Reply(
+        200,
+        r#"{"data":[{"id":"openai/gpt-5","name":"GPT-5","created":1},{"id":"typesafe/jev-1.13","name":"TypeSafe: Jev 1.13","created":1789430400}]}"#.to_owned(),
+    ));
+    let host = gateway_host(&OPENROUTER, &server.base());
+    let models = host.list_models(Duration::from_secs(5)).expect("catalogue");
+    assert_eq!(server.single().path, "/api/v1/models");
+    assert_eq!(
+        models,
+        vec![HostedModel {
+            name: "typesafe/jev-1.13".to_owned(),
+            description: "TypeSafe: Jev 1.13".to_owned(),
+            release_date: "1789430400".to_owned(),
+        }]
+    );
+    assert!(crate::parse_openrouter_models(br#"{"models":[]}"#).is_err());
+    assert!(crate::parse_openrouter_models(br#"{"data":[{"name":"no id"}]}"#).is_err());
+}
+
+#[test]
+fn gateway_backends_report_their_kind_and_key() {
+    for (provider, kind, hint) in [
+        (
+            &VERCEL,
+            systemone_core::ProviderKind::Vercel,
+            "AI Gateway API key",
+        ),
+        (
+            &OPENROUTER,
+            systemone_core::ProviderKind::OpenRouter,
+            "OpenRouter API key",
+        ),
+    ] {
+        let backend = gateway_backend(provider);
+        assert_eq!(backend.kind(), kind);
+        let reason = backend.unavailable_reason_for(None).expect("unset key");
+        assert!(reason.contains(provider.default_api_key_env), "{reason}");
+        assert!(reason.contains(hint), "{reason}");
+        let description = backend.describe();
+        assert_eq!(description.kind, kind);
+        assert_eq!(
+            description.settings,
+            serde_json::json!({ "api_key_env": provider.default_api_key_env })
+        );
+        assert!(matches!(
+            backend.load_with_key(provider.base_url, None),
+            Err(HostError::Unavailable(_))
+        ));
+        let host = backend
+            .load_with_key(provider.base_url, Some(TEST_KEY.to_owned()))
+            .expect("load");
+        assert_eq!(host.capabilities().kind, kind);
+    }
 }
