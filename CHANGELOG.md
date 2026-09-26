@@ -13,8 +13,10 @@ workflow.
   string, so `--set backends.local.settings.gpu_layers=28`,
   `SYSTEMONE_BACKENDS__LOCAL__SETTINGS__GPU_LAYERS=28` and `gpu_layers = 28`
   in a config file all work (#19).
-- A double-quoted `--set` or `SYSTEMONE_*` value is a TOML string literal, so
-  a numeric-looking value can be set as a string (`--set 'key="28"'`).
+- A `--set` or `SYSTEMONE_*` value that is exactly one double-quoted TOML
+  string literal is unquoted, so a numeric-looking value can be set as a
+  string (`--set 'key="28"'`). Text with trailing input after the closing
+  quote stays a raw string instead of losing the trailing input.
 
 ### Added
 

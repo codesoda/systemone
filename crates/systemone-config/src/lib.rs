@@ -478,17 +478,23 @@ fn apply_environment(
 
 /// Coerce an environment/CLI string into a TOML scalar: booleans and
 /// integers are typed, everything else stays a string. Floats are not
-/// inferred so model names such as `1.5` survive. A value wrapped in double
-/// quotes is a TOML string literal, so `--set 'key="28"'` sets the string
-/// `28` rather than the integer.
+/// inferred so model names such as `1.5` survive. A value that is exactly
+/// one TOML string literal is unquoted, so `--set 'key="28"'` sets the
+/// string `28` rather than the integer. Text that merely starts and ends
+/// with a quote (for example `"abc" #"`) is not a single string literal
+/// and stays a raw string.
 fn coerce(text: &str) -> Value {
-    if text.len() >= 2
-        && text.starts_with('"')
-        && text.ends_with('"')
-        && let Ok(table) = toml::from_str::<Table>(&format!("value = {text}"))
-        && let Some(Value::String(inner)) = table.get("value")
-    {
-        return Value::String(inner.clone());
+    if text.len() >= 2 && text.starts_with('"') && text.ends_with('"') {
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            value: toml::Spanned<String>,
+        }
+        let document = format!("value = {text}");
+        if let Ok(wrapper) = toml::from_str::<Wrapper>(&document)
+            && wrapper.value.span().end == document.len()
+        {
+            return Value::String(wrapper.value.into_inner());
+        }
     }
     match text {
         "true" => Value::Boolean(true),
@@ -719,6 +725,12 @@ mod tests {
         assert_eq!(coerce("\"a \\\"b\\\"\""), Value::String("a \"b\"".into()));
         // An unbalanced or invalid literal stays the raw text.
         assert_eq!(coerce("\"x"), Value::String("\"x".into()));
+        // Trailing input after the closing quote is not a string literal.
+        assert_eq!(coerce("\"abc\" #\""), Value::String("\"abc\" #\"".into()));
+        assert_eq!(
+            coerce("\"a\"\nvalue2 = \"b\""),
+            Value::String("\"a\"\nvalue2 = \"b\"".into())
+        );
         let error = resolve_with("", "", &[], &["server=1"]).unwrap_err();
         assert!(error.0.contains("table"), "{error}");
     }

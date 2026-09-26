@@ -35,15 +35,6 @@ pub enum GpuLayersSetting {
     Text(String),
 }
 
-impl GpuLayersSetting {
-    fn as_text(&self) -> std::borrow::Cow<'_, str> {
-        match self {
-            Self::Count(count) => std::borrow::Cow::Owned(count.to_string()),
-            Self::Text(text) => std::borrow::Cow::Borrowed(text),
-        }
-    }
-}
-
 /// Raw settings as written in configuration. All fields optional so a file
 /// may set only what differs from the defaults.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
@@ -161,14 +152,7 @@ pub fn resolve(
         Some(DeviceSetting::Metal) => Device::Metal,
         Some(DeviceSetting::Cuda) => Device::Cuda,
     };
-    let gpu_layers = parse_gpu_layers(
-        settings
-            .gpu_layers
-            .as_ref()
-            .map(GpuLayersSetting::as_text)
-            .as_deref(),
-        device,
-    )?;
+    let gpu_layers = parse_gpu_layers(settings.gpu_layers.as_ref(), device)?;
     let threads = settings.threads.unwrap_or_else(default_threads);
     let max_tokens = settings.max_tokens.unwrap_or(4096);
     let max_context_tokens = settings.max_context_tokens.unwrap_or(32_768);
@@ -307,13 +291,20 @@ fn parse_model_spec(
     })
 }
 
-fn parse_gpu_layers(value: Option<&str>, device: Device) -> Result<GpuLayersRequested, HostError> {
+fn parse_gpu_layers(
+    value: Option<&GpuLayersSetting>,
+    device: Device,
+) -> Result<GpuLayersRequested, HostError> {
     let requested = match value {
         None if device == Device::Cpu => GpuLayersRequested::Count(0),
-        None | Some("all") => GpuLayersRequested::All,
-        Some(value) => GpuLayersRequested::Count(value.parse::<u32>().map_err(|error| {
-            HostError::validation(format!("invalid settings.gpu_layers {value:?}: {error}"))
-        })?),
+        None => GpuLayersRequested::All,
+        Some(GpuLayersSetting::Count(count)) => GpuLayersRequested::Count(*count),
+        Some(GpuLayersSetting::Text(text)) if text == "all" => GpuLayersRequested::All,
+        Some(GpuLayersSetting::Text(text)) => {
+            GpuLayersRequested::Count(text.parse::<u32>().map_err(|error| {
+                HostError::validation(format!("invalid settings.gpu_layers {text:?}: {error}"))
+            })?)
+        }
     };
     if device == Device::Cpu && requested != GpuLayersRequested::Count(0) {
         return Err(HostError::validation(
