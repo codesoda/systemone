@@ -183,6 +183,11 @@ fn verified_files_are_skipped_and_corrupt_files_replaced() {
     // Same size as the pin, wrong content.
     fs::write(root.path().join("fixed"), b"wrong").unwrap();
     assert_eq!(missing_bytes(&plan, root.path()).unwrap(), 0);
+    // The size check cannot see the corruption; the full check must.
+    assert_eq!(
+        unverified_bytes(&plan, root.path()).unwrap(),
+        fixed.len() as u64
+    );
 
     let report = downloader()
         .download(&plan, root.path(), &mut NoProgress)

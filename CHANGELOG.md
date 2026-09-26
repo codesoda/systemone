@@ -17,10 +17,17 @@ workflow.
   OpenJev, Laya, Kev and GLiNER2 are pinned to immutable Hugging Face
   revisions and verified by size and SHA-256 before they are used; Kev's
   pickle-free heads come from
-  [codesoda/kev-heads](https://huggingface.co/codesoda/kev-heads). Hosted
+  [codesoda/kev-heads](https://huggingface.co/codesoda/kev-heads); files
+  already on disk are re-verified by SHA-256 before setup reports them
+  present, so a corrupt file of the right size is downloaded again. Hosted
   kinds store only the API key's environment variable name. `--yes` accepts
-  every default (and runs without a terminal); `--no-download` skips the
-  download.
+  every default (and runs without a terminal) and fails with a clear error
+  when a default cannot pass validation; `--no-download` skips the
+  download. The summary reports `written: true` only when the file changed,
+  and `default: true` only when the backend really resolves as the default
+  (a higher-precedence config source can override it, which setup points
+  out). Setup rejects `--set` (it edits config files itself) and honors
+  `--pretty`.
 - `systemone-weights` crate: one verified downloader for pinned model files
   (stream to `.part`, hash while streaming, rename only after size and
   SHA-256 match; redirects limited to HTTPS on the Hugging Face Hub).

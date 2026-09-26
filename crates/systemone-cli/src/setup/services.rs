@@ -9,19 +9,20 @@ use std::{
 
 use systemone_config::{BackendConfig, Config, toml};
 use systemone_core::{
-    Answer, Backend, BackendId, CallContext, DecisionRequest, DownloadPlan, ModelStatus,
-    NoulQuestion, ProviderKind, Question,
+    Answer, Backend, BackendId, DecisionRequest, DownloadPlan, ModelStatus, NoulQuestion,
+    ProviderKind, Question,
 };
 use systemone_weights::{Downloader, Progress, TerminalProgress};
 
 use super::{Services, TestResult};
-use crate::{CliError, backends};
+use crate::{CliError, backends, commands};
 
 pub struct RealServices;
 
-fn openjev_backend(device: &str) -> Result<Arc<dyn Backend>, CliError> {
-    let mut settings = toml::Table::new();
-    settings.insert("device".to_owned(), toml::Value::String(device.to_owned()));
+/// A throwaway OpenJev backend over the given `settings`, which must be the
+/// full settings table of the backend setup edits (device, cache directory
+/// and so on), so listing and downloading use the cache that backend reads.
+fn openjev_backend(settings: &toml::Table) -> Result<Arc<dyn Backend>, CliError> {
     let config = BackendConfig {
         kind: ProviderKind::OpenJev,
         enabled: true,
@@ -29,7 +30,7 @@ fn openjev_backend(device: &str) -> Result<Arc<dyn Backend>, CliError> {
         aliases: Vec::new(),
         queue_capacity: 1,
         max_in_flight: 1,
-        settings,
+        settings: settings.clone(),
     };
     Ok(backends::build(&BackendId::new("setup")?, &config)?)
 }
@@ -43,13 +44,17 @@ impl Services for RealServices {
         systemone_weights::available_space(directory)
     }
 
-    fn openjev_models(&mut self, device: &str) -> Result<Vec<ModelStatus>, CliError> {
-        let backend = openjev_backend(device)?;
+    fn openjev_models(&mut self, settings: &toml::Table) -> Result<Vec<ModelStatus>, CliError> {
+        let backend = openjev_backend(settings)?;
         Ok(backend.model_store().require("model store")?.list()?)
     }
 
-    fn pull_openjev(&mut self, device: &str, model: &ModelStatus) -> Result<(), CliError> {
-        let backend = openjev_backend(device)?;
+    fn pull_openjev(
+        &mut self,
+        settings: &toml::Table,
+        model: &ModelStatus,
+    ) -> Result<(), CliError> {
+        let backend = openjev_backend(settings)?;
         // The OpenJev store downloads into its own verified cache and
         // reports nothing while it runs, so progress is the growth of the
         // cache directory on disk: close to the bytes received.
@@ -109,10 +114,10 @@ impl Services for RealServices {
     }
 
     fn test_decision(&mut self, config: &Config, backend: &str) -> Result<TestResult, CliError> {
-        let instance = backends::configure_one(config, Some(backend))?;
-        let backend = instance.backend?;
+        // The same load/evaluate/shutdown path as `s1 noul`, so setup tests
+        // exactly what a normal command will run.
         let started = Instant::now();
-        let mut host = backend.load()?;
+        let mut loaded = commands::Loaded::load(config, Some(backend))?;
         let request = DecisionRequest::new(
             None,
             serde_json::Value::String(
@@ -130,14 +135,8 @@ impl Services for RealServices {
                 }),
             )],
         )?;
-        let result = host.capabilities().check(&request).and_then(|()| {
-            let context = CallContext::new(
-                "s1-setup-test",
-                Some(Instant::now() + Duration::from_secs(config.server.request_timeout_secs)),
-            );
-            host.evaluate(&request, &context)
-        });
-        let shutdown = host.shutdown();
+        let result = loaded.evaluate(&request, "s1-setup-test");
+        let shutdown = loaded.shutdown();
         let response = result?;
         shutdown?;
         let probability_true = response

@@ -15,6 +15,12 @@ pub trait Prompter {
     fn confirm(&mut self, prompt: &str, default: bool) -> Result<bool, CliError>;
     /// Information for the user (stderr).
     fn say(&mut self, text: &str);
+    /// `false` when every answer is generated (`--yes`): asking the same
+    /// question again returns the same answer, so a retry loop must fail
+    /// instead of looping forever.
+    fn interactive(&self) -> bool {
+        true
+    }
 }
 
 fn cancelled() -> CliError {
@@ -128,6 +134,10 @@ impl<W: std::io::Write> Prompter for DefaultsPrompter<W> {
 
     fn say(&mut self, text: &str) {
         let _ = writeln!(self.output, "{text}");
+    }
+
+    fn interactive(&self) -> bool {
+        false
     }
 }
 

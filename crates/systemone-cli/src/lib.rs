@@ -185,11 +185,12 @@ pub fn parse(arguments: Vec<OsString>) -> ParseOutcome {
         }
     }
     // Setup reads and edits the config files itself, so a broken file must
-    // not stop it from starting.
+    // not stop it from starting. It also takes no `--set` overrides (execute
+    // rejects them), so they are not validated against this partial view.
     let setup = matches!(cli.command, Some(Command::Setup(_)));
     let options = ResolveOptions {
         no_config: cli.global.no_config || setup,
-        overrides,
+        overrides: if setup { Vec::new() } else { overrides },
         ..Default::default()
     };
     match systemone_config::resolve(&options) {
@@ -291,7 +292,18 @@ fn execute<R: Read, W: Write, E: Write>(
                     "s1 setup edits config files; --no-config does not apply",
                 ));
             }
-            return run_setup(&args, stdin_is_terminal, stdout, stderr);
+            if !cli.global.overrides.is_empty() {
+                return Err(CliError::usage(
+                    "s1 setup edits config files; --set does not apply",
+                ));
+            }
+            return run_setup(
+                &args,
+                stdin_is_terminal,
+                cli.global.pretty.unwrap_or(true),
+                stdout,
+                stderr,
+            );
         }
         Command::Backends => commands::backends(&resolved, stdout),
         Command::Models(args) => commands::models(&resolved, &args, stdout),
@@ -304,6 +316,7 @@ fn execute<R: Read, W: Write, E: Write>(
 fn run_setup<W: Write, E: Write>(
     args: &args::SetupArgs,
     stdin_is_terminal: bool,
+    pretty: bool,
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<i32, CliError> {
@@ -331,7 +344,7 @@ fn run_setup<W: Write, E: Write>(
             "s1 setup asks questions and needs a terminal. Without one, pass --yes to accept every default (combine with --kind, --backend, --user or --project), or edit the config file directly; see examples/systemone.config.toml",
         ));
     };
-    output::write_json(stdout, &summary, true)
+    output::write_json(stdout, &summary, pretty)
         .map_err(|error| CliError::runtime("output_io", error.to_string()))?;
     if summary.test == "failed" {
         return Err(CliError::runtime(

@@ -9,6 +9,8 @@ struct FakeServices {
     models: Vec<ModelStatus>,
     downloads: Vec<(String, PathBuf)>,
     pulls: Vec<String>,
+    /// The settings table of every `openjev_models` and `pull_openjev` call.
+    openjev_settings: Vec<toml::Table>,
     tests: Vec<String>,
     fail_test: bool,
 }
@@ -24,6 +26,7 @@ impl Default for FakeServices {
             ],
             downloads: Vec::new(),
             pulls: Vec::new(),
+            openjev_settings: Vec::new(),
             tests: Vec::new(),
             fail_test: false,
         }
@@ -53,10 +56,16 @@ impl Services for FakeServices {
     fn available_space(&self, _directory: &Path) -> Option<u64> {
         self.space
     }
-    fn openjev_models(&mut self, _device: &str) -> Result<Vec<ModelStatus>, CliError> {
+    fn openjev_models(&mut self, settings: &toml::Table) -> Result<Vec<ModelStatus>, CliError> {
+        self.openjev_settings.push(settings.clone());
         Ok(self.models.clone())
     }
-    fn pull_openjev(&mut self, _device: &str, model: &ModelStatus) -> Result<(), CliError> {
+    fn pull_openjev(
+        &mut self,
+        settings: &toml::Table,
+        model: &ModelStatus,
+    ) -> Result<(), CliError> {
+        self.openjev_settings.push(settings.clone());
         self.pulls.push(model.id.clone());
         Ok(())
     }
@@ -341,14 +350,16 @@ fn gliner2_downloads_into_the_default_directory() {
 }
 
 #[test]
-fn present_files_skip_the_download_and_offer_the_test() {
+fn size_matching_but_corrupt_files_are_downloaded_again() {
     let fixture = Fixture::new(everything());
     let directory = fixture.home.join("models/base");
     let plan = systemone_gliner2::download::download_plan("base").unwrap();
     for file in &plan.files {
         let path = directory.join(&file.path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        // Sparse files with the pinned sizes: the size check passes.
+        // Sparse files with the pinned sizes: the size check passes, but
+        // the content is zeros, so SHA-256 verification must fail and the
+        // files must be downloaded again, never reported as present.
         fs::File::create(&path)
             .unwrap()
             .set_len(file.bytes)
@@ -361,18 +372,18 @@ fn present_files_skip_the_download_and_offer_the_test() {
             kind: Some("gliner2".to_owned()),
             ..SetupArgs::default()
         },
-        &[Accept, Accept, Text("~/models/base"), Yes, Yes, Yes],
+        &[Accept, Accept, Text("~/models/base"), Yes, Yes, Yes, No],
         &mut services,
     );
     let summary = result.unwrap();
-    assert_eq!(summary.download, "present");
-    assert_eq!(summary.test, "passed");
-    assert!(services.downloads.is_empty());
-    assert_eq!(services.tests, ["local-gliner2"]);
+    assert_eq!(summary.download, "downloaded");
+    assert_eq!(summary.test, "declined");
+    assert_eq!(services.downloads.len(), 1);
+    let shown = prompter.shown();
+    assert!(shown.contains("verifying them by SHA-256"), "{shown}");
     assert!(
-        prompter.shown().contains("Test passed"),
-        "{}",
-        prompter.shown()
+        shown.contains("do not match their pinned SHA-256"),
+        "{shown}"
     );
 }
 
@@ -469,6 +480,47 @@ fn editing_the_builtin_local_backend_writes_an_override_and_pulls_the_model() {
         "{}",
         prompter.shown()
     );
+}
+
+#[test]
+fn editing_an_openjev_backend_keeps_its_cache_settings_for_downloads() {
+    let fixture = Fixture::new(everything());
+    let user = fixture.user_file();
+    fs::create_dir_all(user.parent().unwrap()).unwrap();
+    fs::write(
+        &user,
+        "[backends.local]\nkind = \"openjev\"\nenabled = true\nmodel = \"qwen3-0.6b\"\n\n[backends.local.settings]\ndevice = \"cpu\"\ncache_dir = \"/data/openjev\"\n",
+    )
+    .unwrap();
+    let mut services = FakeServices::default();
+    let (result, _) = fixture.run(
+        &SetupArgs {
+            user: true,
+            backend: Some("local".to_owned()),
+            ..SetupArgs::default()
+        },
+        &[Accept, Accept, Yes, Yes, No],
+        &mut services,
+    );
+    let summary = result.unwrap();
+    assert_eq!(summary.download, "downloaded");
+    assert_eq!(services.pulls, ["qwen3-0.6b"]);
+    // Both the model list and the download must see the configured cache.
+    assert_eq!(services.openjev_settings.len(), 2);
+    for settings in &services.openjev_settings {
+        assert_eq!(
+            settings.get("cache_dir").and_then(|value| value.as_str()),
+            Some("/data/openjev"),
+            "{settings:?}"
+        );
+        assert_eq!(
+            settings.get("device").and_then(|value| value.as_str()),
+            Some("cpu")
+        );
+    }
+    // The written file keeps the cache setting.
+    let text = fs::read_to_string(&user).unwrap();
+    assert!(text.contains("cache_dir = \"/data/openjev\""), "{text}");
 }
 
 #[test]
@@ -578,11 +630,165 @@ fn defaults_prompter_runs_setup_without_questions() {
 }
 
 #[test]
+fn yes_fails_instead_of_looping_when_an_existing_env_name_is_invalid() {
+    let fixture = Fixture::new(hosted_only());
+    let user = fixture.user_file();
+    fs::create_dir_all(user.parent().unwrap()).unwrap();
+    fs::write(
+        &user,
+        "[backends.typesafe]\nkind = \"typesafe\"\nenabled = true\n\n[backends.typesafe.settings]\napi_key_env = \"MY-KEY\"\n",
+    )
+    .unwrap();
+    let error = run(
+        &SetupArgs {
+            yes: true,
+            user: true,
+            backend: Some("typesafe".to_owned()),
+            ..SetupArgs::default()
+        },
+        &fixture.context,
+        &mut prompt::DefaultsPrompter::new(Vec::<u8>::new()),
+        &mut FakeServices::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), "validation");
+    assert!(
+        error
+            .to_string()
+            .contains("letters, digits and underscores"),
+        "{error}"
+    );
+}
+
+#[test]
+fn yes_fails_instead_of_looping_when_the_model_dir_is_a_file() {
+    let fixture = Fixture::new(everything());
+    let blocker = fixture.home.join("blocker");
+    fs::write(&blocker, "not a directory").unwrap();
+    let user = fixture.user_file();
+    fs::create_dir_all(user.parent().unwrap()).unwrap();
+    fs::write(
+        &user,
+        format!(
+            "[backends.classifier]\nkind = \"gliner2\"\nenabled = true\n\n[backends.classifier.settings]\nprofile = \"base\"\nmodel_dir = \"{}\"\n",
+            blocker.display()
+        ),
+    )
+    .unwrap();
+    let error = run(
+        &SetupArgs {
+            yes: true,
+            user: true,
+            backend: Some("classifier".to_owned()),
+            ..SetupArgs::default()
+        },
+        &fixture.context,
+        &mut prompt::DefaultsPrompter::new(Vec::<u8>::new()),
+        &mut FakeServices::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), "validation");
+    assert!(
+        error.to_string().contains("exists and is not a directory"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_unchanged_config_reports_written_false() {
+    let fixture = Fixture::new(hosted_only());
+    let mut services = FakeServices::default();
+    let first = fixture
+        .run(
+            &SetupArgs {
+                user: true,
+                kind: Some("typesafe".to_owned()),
+                ..SetupArgs::default()
+            },
+            &[Accept, Accept, Yes, Yes],
+            &mut services,
+        )
+        .0
+        .unwrap();
+    assert!(first.written);
+    let original = fs::read_to_string(fixture.user_file()).unwrap();
+    let (result, prompter) = fixture.run(
+        &SetupArgs {
+            user: true,
+            backend: Some("typesafe".to_owned()),
+            ..SetupArgs::default()
+        },
+        &[Accept],
+        &mut services,
+    );
+    let second = result.unwrap();
+    assert!(
+        !second.written,
+        "an unchanged file must report written=false"
+    );
+    assert!(second.default);
+    assert_eq!(fs::read_to_string(fixture.user_file()).unwrap(), original);
+    assert!(
+        prompter.shown().contains("already has these settings"),
+        "{}",
+        prompter.shown()
+    );
+}
+
+#[test]
+fn a_default_overridden_by_a_higher_precedence_file_is_reported() {
+    let fixture = Fixture::new(hosted_only());
+    fs::write(
+        &fixture.context.project_file,
+        "default_backend = \"local\"\n",
+    )
+    .unwrap();
+    let (result, prompter) = fixture.run(
+        &SetupArgs {
+            user: true,
+            kind: Some("typesafe".to_owned()),
+            ..SetupArgs::default()
+        },
+        &[Accept, Accept, Yes, Yes],
+        &mut FakeServices::default(),
+    );
+    let summary = result.unwrap();
+    assert!(summary.written);
+    assert!(
+        !summary.default,
+        "a project-level default_backend overrides the user file"
+    );
+    let shown = prompter.shown();
+    assert!(shown.contains("higher-precedence config source"), "{shown}");
+    assert!(
+        shown.contains("s1 noul --backend typesafe"),
+        "next steps must include --backend: {shown}"
+    );
+}
+
+#[test]
 fn name_suggestions_avoid_existing_backends() {
     let known = vec!["local".to_owned(), "local-laya".to_owned()];
     assert_eq!(suggest_name(ProviderKind::OpenJev, &known), "local-openjev");
     assert_eq!(suggest_name(ProviderKind::Laya, &known), "local-laya-2");
     assert_eq!(suggest_name(ProviderKind::Typesafe, &known), "typesafe");
+}
+
+#[test]
+fn setup_rejects_set_overrides() {
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let code = crate::run_with_io(
+        ["s1", "setup", "--set", "output.pretty=true"],
+        &mut std::io::empty(),
+        false,
+        &mut stdout,
+        &mut stderr,
+    );
+    assert_eq!(code, 2);
+    assert!(stdout.is_empty());
+    let stderr = String::from_utf8(stderr).unwrap();
+    assert!(stderr.contains("--set does not apply"), "{stderr}");
 }
 
 #[test]

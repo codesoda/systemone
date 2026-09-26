@@ -23,10 +23,8 @@ use std::{
 };
 
 use serde::Serialize;
-use systemone_config::{Config, ConfigError, ResolveOptions, Resolved};
-use systemone_core::{
-    BackendId, DownloadPlan, HostError, ModelStatus, ProviderKind, paths::absolutize,
-};
+use systemone_config::{Config, ConfigError, ResolveOptions, Resolved, toml};
+use systemone_core::{BackendId, DownloadPlan, ModelStatus, ProviderKind, paths::absolutize};
 use systemone_weights::format_bytes;
 
 pub use services::RealServices;
@@ -148,9 +146,12 @@ impl Context {
 pub trait Services {
     fn env_is_set(&self, name: &str) -> bool;
     fn available_space(&self, directory: &Path) -> Option<u64>;
-    /// Registered OpenJev models and whether each is cached.
-    fn openjev_models(&mut self, device: &str) -> Result<Vec<ModelStatus>, CliError>;
-    fn pull_openjev(&mut self, device: &str, model: &ModelStatus) -> Result<(), CliError>;
+    /// Registered OpenJev models and whether each is cached, using the
+    /// backend's `settings` (device, cache directory, …) so the list looks
+    /// in the same cache the saved backend will read.
+    fn openjev_models(&mut self, settings: &toml::Table) -> Result<Vec<ModelStatus>, CliError>;
+    fn pull_openjev(&mut self, settings: &toml::Table, model: &ModelStatus)
+    -> Result<(), CliError>;
     fn download(&mut self, plan: &DownloadPlan, directory: &Path) -> Result<(), CliError>;
     /// Load `backend` from `config` and answer one yes/no question.
     fn test_decision(&mut self, config: &Config, backend: &str) -> Result<TestResult, CliError>;
@@ -191,7 +192,9 @@ enum ModelSource {
         directory: PathBuf,
     },
     OpenJev {
-        device: String,
+        /// The backend's full settings table, so the download uses the same
+        /// cache the saved backend will read.
+        settings: toml::Table,
         model: Box<ModelStatus>,
     },
     Hosted {
@@ -265,7 +268,16 @@ pub fn run(
 
     let editable = editable_backends(&document, current.as_ref().ok());
     let (name, kind, editing) = choose_backend(args, context, prompter, &editable, &known)?;
-    let choice = configure_kind(kind, &name, editing, &document, context, prompter, services)?;
+    let choice = configure_kind(
+        kind,
+        &name,
+        editing,
+        &document,
+        current.as_ref().ok(),
+        context,
+        prompter,
+        services,
+    )?;
 
     let already_default = current
         .as_ref()
@@ -279,14 +291,30 @@ pub fn run(
     if make_default && !already_default {
         document.set_default_backend(&name);
     }
-    validate_candidate(context, &document)?;
+    let candidate = validate_candidate(context, &document)?;
+    // A higher-precedence source (another file, SYSTEMONE_DEFAULT_BACKEND)
+    // can override the default this file sets; report what will really run.
+    let is_default = candidate
+        .config
+        .default_backend
+        .as_ref()
+        .is_some_and(|default| default.as_str() == name);
+    if make_default && !is_default {
+        let source = candidate
+            .provenance
+            .get("default_backend")
+            .map_or_else(String::new, |source| format!(" ({source})"));
+        prompter.say(&format!(
+            "Note: a higher-precedence config source{source} sets default_backend, so {name} will not be the default. Pass --backend {name} when you run s1, or change that source."
+        ));
+    }
 
     let mut summary = Summary {
         schema: "systemone-setup-v1",
         path: target.display().to_string(),
         backend: name.clone(),
         kind: kind.as_str().to_owned(),
-        default: make_default,
+        default: is_default,
         written: false,
         backup: None,
         download: "skipped",
@@ -313,8 +341,8 @@ pub fn run(
         }
         prompter.say(&format!("Wrote {}.", target.display()));
         summary.backup = backup.map(|path| path.display().to_string());
+        summary.written = true;
     }
-    summary.written = true;
 
     summary.download = fetch_model(args, &name, &choice.model, prompter, services)?;
     summary.test = test_decision(
@@ -327,7 +355,7 @@ pub fn run(
         prompter,
         services,
     )?;
-    next_steps(&name, make_default, prompter);
+    next_steps(&name, is_default, prompter);
     Ok(summary)
 }
 
@@ -462,13 +490,16 @@ fn choose_backend(
     let name = loop {
         let name = prompter.input("Name for this backend", &suggestion)?;
         if let Err(error) = BackendId::new(name.as_str()) {
-            prompter.say(&format!("{error}"));
+            explain_or_fail(prompter, &format!("{error}"))?;
             continue;
         }
         if known.contains(&name) {
-            prompter.say(&format!(
-                "A backend named {name} already exists; pick another name or edit it instead."
-            ));
+            explain_or_fail(
+                prompter,
+                &format!(
+                    "A backend named {name} already exists; pick another name or edit it instead."
+                ),
+            )?;
             continue;
         }
         break name;
@@ -505,7 +536,9 @@ fn choose_kind(
         let kind = KINDS[index].0;
         match context.build.supports(kind) {
             Ok(()) => return Ok(kind),
-            Err(reason) => prompter.say(&format!("{kind} is not available: {reason}.")),
+            Err(reason) => {
+                explain_or_fail(prompter, &format!("{kind} is not available: {reason}."))?;
+            }
         }
     }
 }
@@ -554,27 +587,43 @@ fn ask_directory(
     loop {
         let text = prompter.input("Model directory", default)?;
         if text.is_empty() {
-            prompter.say("A model directory is required.");
+            explain_or_fail(prompter, "A model directory is required.")?;
             continue;
         }
         match absolutize(Path::new(&text), context.home.as_deref()) {
             Ok(path) if path.exists() && !path.is_dir() => {
-                prompter.say(&format!(
-                    "{} exists and is not a directory.",
-                    path.display()
-                ));
+                explain_or_fail(
+                    prompter,
+                    &format!("{} exists and is not a directory.", path.display()),
+                )?;
             }
             Ok(path) => return Ok((text, path)),
-            Err(error) => prompter.say(&error.to_string()),
+            Err(error) => explain_or_fail(prompter, &error.to_string())?,
         }
     }
 }
 
+/// Show why an answer was rejected. An interactive prompt asks again; a
+/// generated answer (`--yes`) is the same every time, so asking again would
+/// loop forever, and setup fails instead.
+fn explain_or_fail(prompter: &mut dyn Prompter, message: &str) -> Result<(), CliError> {
+    if prompter.interactive() {
+        prompter.say(message);
+        Ok(())
+    } else {
+        Err(CliError::validation(format!(
+            "{message} --yes cannot answer this question differently; fix the value and run setup again."
+        )))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn configure_kind(
     kind: ProviderKind,
     name: &str,
     editing: bool,
     document: &ConfigDocument,
+    resolved: Option<&Resolved>,
     context: &Context,
     prompter: &mut dyn Prompter,
     services: &mut dyn Services,
@@ -604,10 +653,22 @@ fn configure_kind(
                 &context.build.openjev,
                 current(true, "device").as_deref(),
             )?;
+            // Carry the existing backend's other settings (for example
+            // `cache_dir`), so the model list and the download use the same
+            // cache the saved backend will read.
+            let mut settings = resolved
+                .filter(|_| editing)
+                .and_then(|resolved| {
+                    let id = BackendId::new(name).ok()?;
+                    let backend = resolved.config.backends.get(&id)?;
+                    (backend.kind == ProviderKind::OpenJev).then(|| backend.settings.clone())
+                })
+                .unwrap_or_default();
+            settings.insert("device".to_owned(), toml::Value::String(device.clone()));
             prompter.say(
                 "Checking the OpenJev model cache (cached models are re-verified by SHA-256)…",
             );
-            let models = services.openjev_models(&device)?;
+            let models = services.openjev_models(&settings)?;
             if models.is_empty() {
                 return Err(CliError::runtime(
                     "no_models",
@@ -638,7 +699,7 @@ fn configure_kind(
             Ok(Choice {
                 entry: entry(Some(model.id.clone()), vec![("device", text(&device))]),
                 model: ModelSource::OpenJev {
-                    device,
+                    settings,
                     model: Box::new(model),
                 },
             })
@@ -755,7 +816,10 @@ fn configure_kind(
                 if valid_env_name(&value) {
                     break value;
                 }
-                prompter.say("Use letters, digits and underscores, starting with a letter or underscore (for example TYPESAFE_API_KEY).");
+                explain_or_fail(
+                    prompter,
+                    "Use letters, digits and underscores, starting with a letter or underscore (for example TYPESAFE_API_KEY).",
+                )?;
             };
             if services.env_is_set(&api_key_env) {
                 prompter.say(&format!("{api_key_env} is set in this shell."));
@@ -784,8 +848,9 @@ fn valid_env_name(name: &str) -> bool {
 }
 
 /// Resolve the whole configuration with the candidate text in place of the
-/// target file, then run the same checks as `s1 config check`.
-fn validate_candidate(context: &Context, document: &ConfigDocument) -> Result<(), CliError> {
+/// target file, then run the same checks as `s1 config check`. Returns the
+/// resolved candidate so callers can see the effective configuration.
+fn validate_candidate(context: &Context, document: &ConfigDocument) -> Result<Resolved, CliError> {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let candidate = std::env::temp_dir().join(format!(
         "s1-setup-{}-{}.toml",
@@ -802,17 +867,9 @@ fn validate_candidate(context: &Context, document: &ConfigDocument) -> Result<()
             "the new configuration would not be valid, so nothing was written: {error}"
         ))
     })?;
-    let mut problems = Vec::new();
-    for instance in backends::configure_all(&resolved.config) {
-        if let Err(error) = &instance.backend {
-            match error {
-                HostError::Unsupported(_) if !instance.config.enabled => {}
-                _ => problems.push(format!("{}: {error}", instance.id)),
-            }
-        }
-    }
+    let problems = backends::check_problems(&resolved.config);
     if problems.is_empty() {
-        Ok(())
+        Ok(resolved)
     } else {
         Err(CliError::validation(format!(
             "the new configuration would not pass s1 config check, so nothing was written: {}",
@@ -841,17 +898,33 @@ fn fetch_model(
             plan: Ok(plan),
             directory,
         } => {
-            let missing = systemone_weights::missing_bytes(plan, directory)
+            let by_size = systemone_weights::missing_bytes(plan, directory)
                 .map_err(|error| CliError::runtime("model_files", error.to_string()))?;
-            if missing == 0 {
+            // A file with the right size can still hold the wrong bytes, so
+            // "present" is only reported after every file verifies. A file
+            // that fails is counted as missing and downloaded again.
+            let missing = if by_size == 0 {
                 prompter.say(&format!(
-                    "All {} files of {} are already in {}.",
+                    "All {} files of {} are already in {}; verifying them by SHA-256…",
                     plan.files.len(),
                     plan.label,
                     directory.display()
                 ));
-                return Ok("present");
-            }
+                let unverified = systemone_weights::unverified_bytes(plan, directory)
+                    .map_err(|error| CliError::runtime("model_files", error.to_string()))?;
+                if unverified == 0 {
+                    prompter.say(&format!("All {} files verified.", plan.files.len()));
+                    return Ok("present");
+                }
+                prompter.say(&format!(
+                    "{} of {} do not match their pinned SHA-256 and must be downloaded again.",
+                    format_bytes(unverified),
+                    plan.label
+                ));
+                unverified
+            } else {
+                by_size
+            };
             if args.no_download {
                 prompter.say(&format!(
                     "Skipping the download ({}). {retry}",
@@ -884,7 +957,7 @@ fn fetch_model(
             prompter.say(&format!("Downloaded and verified {}.", plan.label));
             Ok("downloaded")
         }
-        ModelSource::OpenJev { device, model } => {
+        ModelSource::OpenJev { settings, model } => {
             if model.cached && model.verified {
                 prompter.say(&format!("{} is already downloaded and verified.", model.id));
                 return Ok("present");
@@ -903,7 +976,7 @@ fn fetch_model(
                 prompter.say(&retry);
                 return Ok("declined");
             }
-            services.pull_openjev(device, model).map_err(|error| {
+            services.pull_openjev(settings, model).map_err(|error| {
                 CliError::runtime("download_failed", format!("{error}. {retry}"))
             })?;
             prompter.say(&format!("Downloaded and verified {}.", model.id));

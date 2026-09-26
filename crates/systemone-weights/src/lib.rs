@@ -26,6 +26,7 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
+use systemone_core::hash::hex;
 pub use systemone_core::{DownloadPlan, PinnedFile};
 use thiserror::Error;
 
@@ -119,6 +120,20 @@ pub fn missing_bytes(plan: &DownloadPlan, directory: &Path) -> Result<u64, Weigh
         .iter()
         .zip(states)
         .filter(|(_, state)| !state.is_usable())
+        .map(|(file, _)| file.bytes)
+        .sum())
+}
+
+/// Bytes of `plan` files in `directory` that do not verify by size *and*
+/// SHA-256. Reads every present file fully, so it costs a few seconds per
+/// gigabyte; use it after [`missing_bytes`] reports nothing to download.
+pub fn unverified_bytes(plan: &DownloadPlan, directory: &Path) -> Result<u64, WeightsError> {
+    let states = inspect(plan, directory, Check::Full)?;
+    Ok(plan
+        .files
+        .iter()
+        .zip(states)
+        .filter(|(_, state)| *state != FileState::Verified)
         .map(|(file, _)| file.bytes)
         .sum())
 }
@@ -390,29 +405,9 @@ fn file_state(file: &PinnedFile, path: &Path, check: Check) -> Result<FileState,
 
 /// SHA-256 of a file, as lowercase hex.
 pub fn sha256_file(path: &Path) -> Result<String, WeightsError> {
-    let mut input = File::open(path).map_err(|error| WeightsError::io(path, error))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; CHUNK_BYTES];
-    loop {
-        let read = input
-            .read(&mut buffer)
-            .map_err(|error| WeightsError::io(path, error))?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex(&hasher.finalize()))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes
-        .iter()
-        .fold(String::with_capacity(64), |mut out, byte| {
-            let _ = write!(out, "{byte:02x}");
-            out
-        })
+    systemone_core::hash::sha256_file(path)
+        .map(|(_, digest)| digest)
+        .map_err(|error| WeightsError::io(path, error))
 }
 
 fn error_chain(error: &dyn std::error::Error) -> String {

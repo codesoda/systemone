@@ -14,6 +14,7 @@ pub mod artifact;
 pub mod capabilities;
 pub mod error;
 pub mod extension;
+pub mod hash;
 pub mod host;
 pub mod id;
 pub mod paths;
