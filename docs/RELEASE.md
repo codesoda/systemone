@@ -8,8 +8,9 @@ Tagged releases contain the `s1` executable, documentation and notices, plus the
 | --- | --- |
 | `aarch64-apple-darwin` | Apple Silicon, macOS 14.0 or newer, Metal enabled, embedded Metal library |
 | `x86_64-unknown-linux-gnu` | x86-64 baseline CPU, glibc 2.35 or newer, system `libstdc++` and `libgcc` |
+| `x86_64-pc-windows-msvc` | x86-64 baseline CPU, Windows 10 1809 or newer, statically linked C runtime (imports Windows system DLLs only); the executable is `s1.exe` |
 
-The Linux archive is a GNU/glibc build, not a static-musl portability claim. The macOS binary is not Developer ID signed or Apple notarized. Both builds use statically linked bundled llama.cpp/ggml libraries but retain normal operating-system shared-library dependencies.
+All three archives are `.tar.gz`; Windows 10 1803 and newer ship `tar.exe`. The Linux archive is a GNU/glibc build, not a static-musl portability claim. The macOS binary is not Developer ID signed or Apple notarized. Both builds use statically linked bundled llama.cpp/ggml libraries but retain normal operating-system shared-library dependencies.
 
 Running `s1` does not require Python, CMake, a compiler, Xcode, or Homebrew. Those tools may be used only while building or validating an archive in CI.
 
@@ -26,6 +27,14 @@ Append `-s -- --version v0.1.0` to `sh` to select an exact release; the default 
 Payloads are retained at `~/.systemone/bin/s1-v<VERSION>-<TARGET>/`, including all notices and covered-source archives. `~/.systemone/bin/s1` selects the active executable, and `~/.local/bin/s1` points to that stable path. Managed symlinks are updated on upgrade; unrelated files/links are refused. (`~/.systemone/` is also where `systemone.config.toml` lives; the installer never touches configuration.)
 
 The installer verifies the selected archive against `SHA256SUMS` before extraction, validates the allowed archive contents, and checks the executable's version before activation. On macOS it removes `com.apple.quarantine` from the verified downloaded executable with `xattr -d` before executing it. An absent quarantine attribute is normal; failure to remove an existing attribute is an error. This does not sign/notarize the executable or disable Gatekeeper globally. No model cache or shell startup files are modified.
+
+On Windows, [`install.ps1`](../install.ps1) does the same in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/codesoda/systemone/main/install.ps1 | iex
+```
+
+It keeps payloads at `%USERPROFILE%\.systemone\bin\s1-v<VERSION>-x86_64-pc-windows-msvc\` and copies the verified executable to `%USERPROFILE%\.systemone\bin\s1.exe` as the active version. It changes the user `PATH` only when you pass `-AddToPath`.
 
 ## Manual verification and installation
 

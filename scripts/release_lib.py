@@ -33,6 +33,16 @@ TARGETS = {
             "runtime_tools_not_required": ["CMake", "clang", "Python"],
         },
     },
+    "x86_64-pc-windows-msvc": {
+        "features": ["native"],
+        "platform": "windows",
+        "architecture": "x86_64",
+        "requirements": {
+            "minimum_windows": "10 (1809)",
+            "shared_libraries": ["Windows system DLLs only; the C runtime is linked statically"],
+            "runtime_tools_not_required": ["Visual C++ Redistributable", "CMake", "Python"],
+        },
+    },
 }
 NATIVE_CRATE_VERSION = "0.1.156"
 LLAMA_CPP_COMMIT = "e79e4bf660e19f2ad851e06c6913f7a8c5852621"
@@ -41,6 +51,8 @@ SOURCE_ARCHIVE_PATHS = {
     "option-ext-0.2.0.crate": ("licenses", "sources", "option-ext-0.2.0.crate"),
 }
 RUST_NOTICE_PATH = ("licenses", "RUST-COPYRIGHT-library.html")
+# Package contents in archive order. The executable is `s1` on macOS and
+# Linux and `s1.exe` on Windows; see member_files().
 MEMBER_FILES = (
     "s1",
     "LICENSE",
@@ -52,6 +64,23 @@ MEMBER_FILES = (
     "README.md",
     "BUILD-INFO.json",
 )
+def binary_name(target):
+    return "s1.exe" if TARGETS[target]["platform"] == "windows" else "s1"
+
+
+def member_files(target):
+    """Ordered archive members for one target."""
+    return tuple(binary_name(target) if name == "s1" else name for name in MEMBER_FILES)
+
+
+def target_of_root(root_name):
+    """The target encoded in an archive root `s1-vVERSION-TARGET`, or None."""
+    for target in TARGETS:
+        if root_name.endswith("-" + target):
+            return target
+    return None
+
+
 SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 VERSION_RE = re.compile(r'^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$')
 
@@ -174,7 +203,75 @@ def extract_safely(archive_path, destination, members):
             output.chmod(member.mode & 0o777)
 
 
+# Import libraries that belong to the Visual C++ runtime. Release builds link
+# the C runtime statically, so none of these may appear.
+WINDOWS_FORBIDDEN_IMPORT_PREFIXES = ("vcruntime", "msvcp", "concrt", "vccorlib")
+
+
+def pe_imports(data):
+    """Machine type and imported DLL names of a PE32+ image (standard library only)."""
+    import struct
+
+    if data[:2] != b"MZ":
+        fail("packaged binary is not a PE image")
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe_offset:pe_offset + 4] != b"PE\0\0":
+        fail("packaged binary has no PE signature")
+    machine, sections, _, _, _, optional_size, _ = struct.unpack_from("<HHIIIHH", data, pe_offset + 4)
+    optional = pe_offset + 24
+    if struct.unpack_from("<H", data, optional)[0] != 0x20B:
+        fail("packaged binary is not PE32+")
+    import_rva = struct.unpack_from("<I", data, optional + 112 + 8)[0]
+    section_table = optional + optional_size
+    ranges = []
+    for index in range(sections):
+        base = section_table + index * 40
+        virtual_size, virtual_address, raw_size, raw_pointer = struct.unpack_from("<IIII", data, base + 8)
+        ranges.append((virtual_address, max(virtual_size, raw_size), raw_pointer))
+
+    def offset(rva):
+        for virtual_address, size, raw_pointer in ranges:
+            if virtual_address <= rva < virtual_address + size:
+                return rva - virtual_address + raw_pointer
+        fail("PE import table points outside every section")
+
+    names = []
+    if import_rva:
+        descriptor = offset(import_rva)
+        while True:
+            fields = struct.unpack_from("<IIIII", data, descriptor)
+            if not any(fields):
+                break
+            name_at = offset(fields[3])
+            end = data.index(b"\0", name_at)
+            names.append(data[name_at:end].decode("ascii"))
+            descriptor += 20
+    return machine, names
+
+
+def check_windows_imports(names):
+    for name in names:
+        lowered = name.lower()
+        if lowered.startswith(WINDOWS_FORBIDDEN_IMPORT_PREFIXES):
+            fail("Windows binary depends on the Visual C++ runtime (%s); link it statically" % name)
+        if not lowered.endswith(".dll"):
+            fail("unexpected Windows import: %s" % name)
+
+
 def check_linkage(binary, target):
+    if target == "x86_64-pc-windows-msvc":
+        machine, names = pe_imports(binary.read_bytes())
+        if machine != 0x8664:
+            fail("packaged binary is not x86-64 (machine 0x%04x)" % machine)
+        check_windows_imports(names)
+        import os
+        system = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+        if os.path.isdir(system):
+            for name in names:
+                if not name.lower().startswith("api-ms-win-") and not os.path.isfile(os.path.join(system, name)):
+                    fail("non-system Windows dependency: %s" % name)
+        print("PE32+ x86-64 executable; imports: %s" % ", ".join(sorted(names, key=str.lower)))
+        return
     file_result = subprocess.run(["file", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True)
     if file_result.returncode != 0:
         fail("file failed for packaged binary: %s" % file_result.stderr.strip())
