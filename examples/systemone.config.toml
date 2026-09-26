@@ -45,7 +45,7 @@ api_key_env = "TYPESAFE_API_KEY"
 [backends.cloud-vercel]
 kind = "vercel"
 enabled = false
-model = "jev-latest"
+# model = "typesafe-ai/jev"          # the default; jev-latest is an alias
 
 [backends.cloud-vercel.settings]
 api_key_env = "AI_GATEWAY_API_KEY"

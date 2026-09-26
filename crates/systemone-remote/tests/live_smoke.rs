@@ -130,7 +130,7 @@ fn live_gateway_round_trip(provider: &'static Provider, list_catalogue: bool) {
         provider,
         RemoteTransport::new().expect("remote client"),
         Url::parse(provider.base_url).expect("base URL"),
-        DEFAULT_MODEL.to_owned(),
+        provider.default_model.to_owned(),
         vec![],
         api_key,
     );

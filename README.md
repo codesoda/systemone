@@ -92,7 +92,7 @@ coverage.
 | `kev` | Kev pointer-head decision models ([jaredpalmer/kev](https://github.com/jaredpalmer/kev)) on Qwen bases through kev-core (kev-rs) | **Available** with `--features kev-cpu` (Candle, Qwen3 checkpoints such as kev-0.6b) or `kev-metal` (MLX, Apple Silicon, Qwen3.5 hybrid checkpoints kev-0.8b/kev-4b). Parity and performance are gated in [kev-rs](https://github.com/codesoda/kev-rs) against frozen upstream goldens; not in binary releases yet |
 | `gliner2` | GLiNER2.5 zero-shot label classifier through [gliner2-rs](https://github.com/codesoda/gliner2-rs) and ONNX Runtime | **Available** with `--features gliner2` (CPU). Choice and Noul hold up on the held-out set; Score does not ([evaluation](docs/gliner2-evaluation.md)). Not in binary releases yet |
 | `typesafe` | TypeSafe hosted Jev through `https://api.typesafe.ai/v1/systemone` | **Available.** Bearer API key from an operator-configured environment variable. `s1 backends` reports it unavailable while that variable is unset or empty; the hosted API is never probed, because a probe request is billed |
-| `vercel` | Hosted Jev through Vercel AI Gateway, `https://ai-gateway.vercel.sh/typesafe/v1/systemone` | **Available**, mock-tested; not yet run against the live gateway. Bearer AI Gateway API key or Vercel OIDC token from an environment variable (conventionally `AI_GATEWAY_API_KEY`); billed through the gateway |
+| `vercel` | Hosted Jev through Vercel AI Gateway, `https://ai-gateway.vercel.sh/typesafe/v1/systemone` | **Available**, mock-tested against the documented shapes; not yet answered live. Bearer AI Gateway API key or Vercel OIDC token from an environment variable (conventionally `AI_GATEWAY_API_KEY`); billed through the gateway. Default model `typesafe-ai/jev` (`jev-latest` is accepted as an alias); the gateway's cost, generation ID and serving provider fill `usage.cost` and the provider headers |
 | `openrouter` | Hosted Jev through OpenRouter, `https://openrouter.ai/api/v1/systemone` | **Available**, run against the live API (2026-09-26, `typesafe/jev-1.13-20260917`). Bearer OpenRouter API key (conventionally `OPENROUTER_API_KEY`). Answers name OpenRouter's model ID (e.g. `typesafe/jev-1.13`); `usage.cost` is kept, and `id` / `provider` are returned as `x-systemone-provider-request-id` / `x-systemone-upstream-provider` |
 
 Enable only the instances you need. Disabled local backends do not load
@@ -599,6 +599,14 @@ enabled = true
 [backends.cloud-openrouter.settings]
 api_key_env = "OPENROUTER_API_KEY"
 ```
+
+AI Gateway names the model `typesafe-ai/jev`. A `vercel` instance uses it when
+`model` is not set, and then also answers requests for `jev-latest`. The
+gateway reports cost and routing under `provider_metadata.gateway`: SystemOne
+puts its `cost` into `usage.cost`, its `generationId` into
+`x-systemone-provider-request-id`, and `routing.finalProvider` into
+`x-systemone-upstream-provider`. AI Gateway needs a credit card on the Vercel
+account before it serves requests; until then it answers HTTP 403.
 
 OpenRouter maps bare Jev IDs onto its `typesafe/` namespace (`jev-latest` →
 `~typesafe/jev-latest`) and answers with its own model ID, which SystemOne

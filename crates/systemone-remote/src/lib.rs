@@ -30,7 +30,7 @@ mod hosted_tests;
 
 pub use hosted::{
     BASE_URL, Catalogue, DEFAULT_MODEL, HostedBackend, HostedHost, HostedModel, HostedSettings,
-    OPENROUTER, Provider, TYPESAFE, VERCEL, parse_models_response, parse_openrouter_models,
-    provider,
+    Metadata, OPENROUTER, Provider, TYPESAFE, VERCEL, parse_models_response,
+    parse_openrouter_models, provider,
 };
 pub use transport::{MAX_RESPONSE_BYTES, RemoteError, RemoteReply, RemoteTransport};

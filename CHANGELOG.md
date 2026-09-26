@@ -23,7 +23,11 @@ workflow.
   `usage.cost` about $0.000013 per request and `provider: TypeSafe`.
   OpenRouter validates more strictly than TypeSafe (instructions required,
   Noul criteria need both outcomes, Choice criteria must be an object); its
-  400 is passed through. Vercel has not been run live yet (#3).
+  400 is passed through. Vercel follows its documented shapes: default model
+  `typesafe-ai/jev` (with a `jev-latest` alias), and `provider_metadata.gateway`
+  cost, generation ID and serving provider mapped into `usage.cost` and the
+  provider headers. Vercel's key and catalogue were checked live; decisions
+  have not been, because the gateway needs a card on file first (#3).
 
 - `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
   models (jaredpalmer/kev) on Qwen bases through the kev-core runtime

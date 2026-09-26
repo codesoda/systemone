@@ -71,6 +71,22 @@ pub struct Provider {
     pub default_api_key_env: &'static str,
     /// What the key is, for the "not set" message.
     pub key_description: &'static str,
+    /// Model sent when the instance configures none. When it is not
+    /// `jev-latest`, `jev-latest` is also accepted as an alias for it.
+    pub default_model: &'static str,
+    /// Where the provider reports cost, request ID and serving provider
+    /// outside the TypeSafe fields.
+    pub metadata: Metadata,
+}
+
+/// Provider-specific response metadata beyond the TypeSafe shape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Metadata {
+    /// Everything is in TypeSafe fields (`usage.cost`, `id`, `provider`).
+    None,
+    /// Vercel AI Gateway's `provider_metadata.gateway`: `cost` (a decimal
+    /// string), `generationId` and `routing.finalProvider`.
+    VercelGateway,
 }
 
 pub const TYPESAFE: Provider = Provider {
@@ -82,6 +98,8 @@ pub const TYPESAFE: Provider = Provider {
     catalogue: Catalogue::Typesafe,
     default_api_key_env: "TYPESAFE_API_KEY",
     key_description: "the TypeSafe API key",
+    default_model: DEFAULT_MODEL,
+    metadata: Metadata::None,
 };
 
 pub const VERCEL: Provider = Provider {
@@ -93,6 +111,9 @@ pub const VERCEL: Provider = Provider {
     catalogue: Catalogue::Typesafe,
     default_api_key_env: "AI_GATEWAY_API_KEY",
     key_description: "an AI Gateway API key or Vercel OIDC token",
+    // AI Gateway names Jev by its gateway model ID.
+    default_model: "typesafe-ai/jev",
+    metadata: Metadata::VercelGateway,
 };
 
 pub const OPENROUTER: Provider = Provider {
@@ -104,6 +125,9 @@ pub const OPENROUTER: Provider = Provider {
     catalogue: Catalogue::OpenRouter,
     default_api_key_env: "OPENROUTER_API_KEY",
     key_description: "the OpenRouter API key",
+    // OpenRouter maps bare Jev IDs itself (`jev-latest` → `~typesafe/jev-latest`).
+    default_model: DEFAULT_MODEL,
+    metadata: Metadata::None,
 };
 
 /// The provider profile for a hosted kind, if `kind` is one.
@@ -174,9 +198,20 @@ impl HostedBackend {
                 "settings.api_key_env must be an environment variable name, not a value",
             ));
         }
-        let model = model.unwrap_or(DEFAULT_MODEL);
+        let defaulted = model.is_none();
+        let model = model.unwrap_or(provider.default_model);
         if model.is_empty() {
             return Err(HostError::validation("model must not be empty"));
+        }
+        // A provider whose default model is not `jev-latest` still answers
+        // callers (and SDKs) that ask for `jev-latest`, but only while the
+        // operator has not chosen a model.
+        let mut aliases = aliases;
+        if defaulted
+            && model != DEFAULT_MODEL
+            && !aliases.iter().any(|alias| alias == DEFAULT_MODEL)
+        {
+            aliases.push(DEFAULT_MODEL.to_owned());
         }
         Ok(Self {
             provider,
@@ -590,8 +625,11 @@ impl DecisionHost for HostedHost {
         if !(200..300).contains(&reply.status) {
             return Err(self.upstream_error(&reply));
         }
-        let response = wire::parse_response(&reply.body)
+        let mut response = wire::parse_response(&reply.body)
             .map_err(|error| self.invalid_body(reply.status, &error.message))?;
+        if self.provider.metadata == Metadata::VercelGateway {
+            apply_gateway_metadata(&reply.body, &mut response);
+        }
         // The upstream owns its key order; SystemOne owns the one its
         // callers see. This moves entries into request order and refuses a
         // body that answers other questions, other labels or another score
@@ -607,6 +645,47 @@ impl DecisionHost for HostedHost {
     fn shutdown(&mut self) -> Result<(), HostError> {
         // The blocking client needs no teardown.
         Ok(())
+    }
+}
+
+/// Copy Vercel AI Gateway's `provider_metadata.gateway` facts into the
+/// neutral response: `cost` into `usage.cost`, `generationId` into the
+/// provider request ID, `routing.finalProvider` into the upstream provider.
+/// Values the TypeSafe fields already carry win; malformed metadata is
+/// ignored, because the answers are valid and already paid for.
+fn apply_gateway_metadata(body: &[u8], response: &mut DecisionResponse) {
+    let Ok(Value::Object(root)) = serde_json::from_slice::<Value>(body) else {
+        return;
+    };
+    let Some(gateway) = root
+        .get("provider_metadata")
+        .and_then(|metadata| metadata.get("gateway"))
+    else {
+        return;
+    };
+    if response.usage.cost.is_none() {
+        response.usage.cost = match gateway.get("cost") {
+            Some(Value::String(text)) => text.parse::<f64>().ok(),
+            Some(Value::Number(number)) => number.as_f64(),
+            _ => None,
+        }
+        .filter(|cost| cost.is_finite() && *cost >= 0.0);
+    }
+    let short = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty() && text.len() <= 256)
+            .map(str::to_owned)
+    };
+    if response.diagnostics.provider_request_id.is_none() {
+        response.diagnostics.provider_request_id = short(gateway.get("generationId"));
+    }
+    if response.diagnostics.upstream_provider.is_none() {
+        response.diagnostics.upstream_provider = short(
+            gateway
+                .get("routing")
+                .and_then(|routing| routing.get("finalProvider")),
+        );
     }
 }
 

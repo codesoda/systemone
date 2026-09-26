@@ -1328,3 +1328,108 @@ fn gateway_backends_report_their_kind_and_key() {
         assert_eq!(host.capabilities().kind, kind);
     }
 }
+
+#[test]
+fn vercel_gateway_metadata_fills_cost_request_id_and_provider() {
+    // The documented AI Gateway response: no `usage.cost`, no `id`; the
+    // facts are under `provider_metadata.gateway`.
+    let body = r#"{"model":"typesafe-ai/jev","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.7,"beta":0.3},"confidence":0.4},"worth":{"type":"noul","noul":0.98}},"usage":{"input_tokens":275,"output_tokens":20},"provider_metadata":{"gateway":{"routing":{"originalModelId":"typesafe-ai/jev","resolvedProvider":"typesafe-ai","canonicalSlug":"typesafe-ai/jev","finalProvider":"typesafe-ai"},"cost":"0.00001155","marketCost":"0.00001155","surchargeCost":"0","gatewayCost":"0.00001155","generationId":"gen_01abc"}}}"#;
+    let server = MockServer::start(Script::Reply(200, body.to_owned()));
+    let mut host = gateway_host(&VERCEL, &server.base());
+    let response = evaluate(&mut host).expect("vercel success");
+    assert_eq!(response.model, "typesafe-ai/jev");
+    assert_eq!(response.usage.cost, Some(0.000_011_55));
+    assert_eq!(response.usage.input_tokens, Some(275));
+    assert_eq!(
+        response.diagnostics.provider_request_id.as_deref(),
+        Some("gen_01abc")
+    );
+    assert_eq!(
+        response.diagnostics.upstream_provider.as_deref(),
+        Some("typesafe-ai")
+    );
+    assert_eq!(
+        wire::render_response(&response).usage["cost"],
+        serde_json::json!(0.000_011_55)
+    );
+}
+
+#[test]
+fn gateway_metadata_is_ignored_for_other_providers_and_when_malformed() {
+    let body = r#"{"model":"jev-latest","answers":{"pick":{"type":"choice","choice":"alpha","probabilities":{"alpha":0.7,"beta":0.3}},"worth":{"type":"noul","noul":0.5}},"provider_metadata":{"gateway":{"cost":"lots","generationId":"gen_x"}}}"#;
+    let server = MockServer::start(Script::Reply(200, body.to_owned()));
+    let mut host = gateway_host(&OPENROUTER, &server.base());
+    let response = evaluate(&mut host).expect("openrouter success");
+    assert_eq!(response.usage.cost, None);
+    assert_eq!(response.diagnostics.provider_request_id, None);
+
+    let server = MockServer::start(Script::Reply(200, body.to_owned()));
+    let mut host = gateway_host(&VERCEL, &server.base());
+    let response = evaluate(&mut host).expect("vercel success");
+    assert_eq!(
+        response.usage.cost, None,
+        "an unparseable cost is dropped, not guessed"
+    );
+    assert_eq!(
+        response.diagnostics.provider_request_id.as_deref(),
+        Some("gen_x")
+    );
+}
+
+#[test]
+fn vercel_defaults_to_its_gateway_model_and_still_answers_jev_latest() {
+    let backend = gateway_backend(&VERCEL);
+    assert_eq!(backend.describe().model, "typesafe-ai/jev");
+    let host = backend
+        .load_with_key(VERCEL.base_url, Some(TEST_KEY.to_owned()))
+        .expect("load");
+    let capabilities = host.capabilities();
+    assert_eq!(capabilities.resolve_model(None).unwrap(), "typesafe-ai/jev");
+    assert_eq!(
+        capabilities.resolve_model(Some("jev-latest")).unwrap(),
+        "typesafe-ai/jev"
+    );
+
+    // An operator-chosen model gets no implicit alias.
+    let pinned = HostedBackend::new(
+        &VERCEL,
+        BackendId::new("cloud").unwrap(),
+        Some("typesafe-ai/jev-1.13"),
+        vec![],
+        &HostedSettings {
+            api_key_env: "AI_GATEWAY_API_KEY".to_owned(),
+        },
+    )
+    .unwrap();
+    let host = pinned
+        .load_with_key(VERCEL.base_url, Some(TEST_KEY.to_owned()))
+        .unwrap();
+    assert!(
+        host.capabilities()
+            .resolve_model(Some("jev-latest"))
+            .is_err()
+    );
+
+    // TypeSafe and OpenRouter keep `jev-latest` as the model itself.
+    assert_eq!(gateway_backend(&OPENROUTER).describe().model, "jev-latest");
+    assert_eq!(gateway_backend(&TYPESAFE).describe().model, "jev-latest");
+}
+
+#[test]
+fn vercel_errors_use_the_typesafe_envelope() {
+    let body = r#"{"message":"questions.refund.type: expected one of 'noul', 'choice', 'score'","error_type":"invalid_request"}"#;
+    let server = MockServer::start(Script::Reply(422, body.to_owned()));
+    let mut host = gateway_host(&VERCEL, &server.base());
+    match evaluate(&mut host).expect_err("422") {
+        HostError::Upstream {
+            status,
+            code,
+            message,
+        } => {
+            assert_eq!(status, Some(422));
+            assert_eq!(code.as_deref(), Some("invalid_request"));
+            assert!(message.contains("questions.refund.type"), "{message}");
+        }
+        other => panic!("expected an upstream error, got {other:?}"),
+    }
+}
