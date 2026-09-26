@@ -8,7 +8,7 @@ Tagged releases contain the `s1` executable, documentation and notices, plus the
 | --- | --- |
 | `aarch64-apple-darwin` | Apple Silicon, macOS 14.0 or newer, Metal enabled, embedded Metal library |
 | `x86_64-unknown-linux-gnu` | x86-64 baseline CPU, glibc 2.35 or newer, system `libstdc++` and `libgcc` |
-| `x86_64-pc-windows-msvc` | x86-64 baseline CPU, Windows 10 1809 or newer, statically linked C runtime (imports Windows system DLLs only); the executable is `s1.exe` |
+| `x86_64-pc-windows-msvc` | x86-64 baseline CPU, Windows 10 1809 or newer, statically linked C runtime (imports Windows system DLLs only); the executable is `s1.exe`. Built with `RUSTFLAGS=-Ctarget-feature=+crt-static` and `LLAMA_STATIC_CRT=1`, which must be set together |
 
 All three archives are `.tar.gz`; Windows 10 1803 and newer ship `tar.exe`. The Linux archive is a GNU/glibc build, not a static-musl portability claim. The macOS binary is not Developer ID signed or Apple notarized. Both builds use statically linked bundled llama.cpp/ggml libraries but retain normal operating-system shared-library dependencies.
 
