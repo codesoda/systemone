@@ -178,7 +178,7 @@ jobs:
       - name: Test default workspace on Windows
         if: runner.os == 'Windows'
         shell: bash
-        run: cargo test --locked --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets --no-fail-fast
 
       - name: Clippy native workspace
         if: runner.os == 'Linux'
