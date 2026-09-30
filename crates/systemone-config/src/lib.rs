@@ -478,8 +478,24 @@ fn apply_environment(
 
 /// Coerce an environment/CLI string into a TOML scalar: booleans and
 /// integers are typed, everything else stays a string. Floats are not
-/// inferred so model names such as `1.5` survive.
+/// inferred so model names such as `1.5` survive. A value that is exactly
+/// one TOML string literal is unquoted, so `--set 'key="28"'` sets the
+/// string `28` rather than the integer. Text that merely starts and ends
+/// with a quote (for example `"abc" #"`) is not a single string literal
+/// and stays a raw string.
 fn coerce(text: &str) -> Value {
+    if text.len() >= 2 && text.starts_with('"') && text.ends_with('"') {
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            value: toml::Spanned<String>,
+        }
+        let document = format!("value = {text}");
+        if let Ok(wrapper) = toml::from_str::<Wrapper>(&document)
+            && wrapper.value.span().end == document.len()
+        {
+            return Value::String(wrapper.value.into_inner());
+        }
+    }
     match text {
         "true" => Value::Boolean(true),
         "false" => Value::Boolean(false),
@@ -704,6 +720,17 @@ mod tests {
         assert_eq!(coerce("true"), Value::Boolean(true));
         assert_eq!(coerce("42"), Value::Integer(42));
         assert_eq!(coerce("1.5"), Value::String("1.5".into()));
+        assert_eq!(coerce("\"28\""), Value::String("28".into()));
+        assert_eq!(coerce("\"true\""), Value::String("true".into()));
+        assert_eq!(coerce("\"a \\\"b\\\"\""), Value::String("a \"b\"".into()));
+        // An unbalanced or invalid literal stays the raw text.
+        assert_eq!(coerce("\"x"), Value::String("\"x".into()));
+        // Trailing input after the closing quote is not a string literal.
+        assert_eq!(coerce("\"abc\" #\""), Value::String("\"abc\" #\"".into()));
+        assert_eq!(
+            coerce("\"a\"\nvalue2 = \"b\""),
+            Value::String("\"a\"\nvalue2 = \"b\"".into())
+        );
         let error = resolve_with("", "", &[], &["server=1"]).unwrap_err();
         assert!(error.0.contains("table"), "{error}");
     }

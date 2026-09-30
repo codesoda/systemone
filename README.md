@@ -444,6 +444,10 @@ compatibility does not imply the same predictions as hosted Jev.
    `SYSTEMONE_BACKENDS__LOCAL__SETTINGS__THREADS=8`
 5. CLI flags and `--set key=value`
 
+`--set` and `SYSTEMONE_*` values become booleans or integers when they look
+like one (`true`, `28`); anything else is a string. Wrap a value in double
+quotes to keep it a string, e.g. `--set 'backends.local.model="7"'`.
+
 `s1 config show` prints the merged result with the source of every value;
 `s1 config check` validates every backend's typed settings without loading
 anything. `--no-config` ignores the files and environment.
