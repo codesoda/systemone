@@ -514,6 +514,14 @@ pub fn parse_response(bytes: &[u8]) -> Result<DecisionResponse, WireError> {
             ));
         }
     };
+    // OpenRouter names the provider that served the request. It is an
+    // extension: kept when it is a short string, otherwise ignored.
+    let upstream_provider = match response.shift_remove("provider") {
+        Some(Value::String(provider)) if provider.len() <= MAX_PROVIDER_REQUEST_ID_BYTES => {
+            Some(provider)
+        }
+        _ => None,
+    };
     let usage = match response.shift_remove("usage") {
         None | Some(Value::Null) => systemone_core::Usage::default(),
         Some(value) => parse_usage(value)?,
@@ -533,6 +541,7 @@ pub fn parse_response(bytes: &[u8]) -> Result<DecisionResponse, WireError> {
         usage,
         diagnostics: systemone_core::Diagnostics {
             provider_request_id,
+            upstream_provider,
             ..systemone_core::Diagnostics::default()
         },
     })

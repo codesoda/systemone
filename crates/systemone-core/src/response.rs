@@ -157,6 +157,9 @@ pub struct Diagnostics {
     pub probability_status: Option<String>,
     /// Provider-assigned request identity, if any.
     pub provider_request_id: Option<String>,
+    /// The provider that served a hosted request, as the upstream reported
+    /// it (OpenRouter's `provider` field). `None` when not reported.
+    pub upstream_provider: Option<String>,
     /// What the host cut to fit its budget, e.g. `state_tokens=120;
     /// rows_at_max_len=2`. `None` when nothing was truncated.
     pub truncation: Option<String>,

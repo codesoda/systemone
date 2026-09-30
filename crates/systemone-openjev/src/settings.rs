@@ -25,6 +25,16 @@ pub enum DeviceSetting {
     Cuda,
 }
 
+/// `gpu_layers` as written: a TOML integer (`28`) or a string (`"28"`,
+/// `"all"`). Both forms are accepted so a count works from a config file,
+/// `--set` and `SYSTEMONE_*` alike.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum GpuLayersSetting {
+    Count(u32),
+    Text(String),
+}
+
 /// Raw settings as written in configuration. All fields optional so a file
 /// may set only what differs from the defaults.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
@@ -41,8 +51,9 @@ pub struct OpenJevSettings {
     /// `minicpm5`). Registered models carry their own.
     pub template_profile: Option<String>,
     pub device: Option<DeviceSetting>,
-    /// `"all"` or a layer count. Defaults to 0 on CPU, all on accelerators.
-    pub gpu_layers: Option<String>,
+    /// `"all"` or a layer count (`28` or `"28"`). Defaults to 0 on CPU, all
+    /// on accelerators.
+    pub gpu_layers: Option<GpuLayersSetting>,
     pub threads: Option<u32>,
     pub n_ctx: Option<u32>,
     pub max_tokens: Option<u32>,
@@ -141,7 +152,7 @@ pub fn resolve(
         Some(DeviceSetting::Metal) => Device::Metal,
         Some(DeviceSetting::Cuda) => Device::Cuda,
     };
-    let gpu_layers = parse_gpu_layers(settings.gpu_layers.as_deref(), device)?;
+    let gpu_layers = parse_gpu_layers(settings.gpu_layers.as_ref(), device)?;
     let threads = settings.threads.unwrap_or_else(default_threads);
     let max_tokens = settings.max_tokens.unwrap_or(4096);
     let max_context_tokens = settings.max_context_tokens.unwrap_or(32_768);
@@ -280,13 +291,20 @@ fn parse_model_spec(
     })
 }
 
-fn parse_gpu_layers(value: Option<&str>, device: Device) -> Result<GpuLayersRequested, HostError> {
+fn parse_gpu_layers(
+    value: Option<&GpuLayersSetting>,
+    device: Device,
+) -> Result<GpuLayersRequested, HostError> {
     let requested = match value {
         None if device == Device::Cpu => GpuLayersRequested::Count(0),
-        None | Some("all") => GpuLayersRequested::All,
-        Some(value) => GpuLayersRequested::Count(value.parse::<u32>().map_err(|error| {
-            HostError::validation(format!("invalid settings.gpu_layers {value:?}: {error}"))
-        })?),
+        None => GpuLayersRequested::All,
+        Some(GpuLayersSetting::Count(count)) => GpuLayersRequested::Count(*count),
+        Some(GpuLayersSetting::Text(text)) if text == "all" => GpuLayersRequested::All,
+        Some(GpuLayersSetting::Text(text)) => {
+            GpuLayersRequested::Count(text.parse::<u32>().map_err(|error| {
+                HostError::validation(format!("invalid settings.gpu_layers {text:?}: {error}"))
+            })?)
+        }
     };
     if device == Device::Cpu && requested != GpuLayersRequested::Count(0) {
         return Err(HostError::validation(
@@ -308,6 +326,29 @@ mod tests {
 
     fn home() -> PathBuf {
         PathBuf::from("/home/test")
+    }
+
+    #[test]
+    fn gpu_layers_accepts_an_integer_or_a_string() {
+        for raw in [
+            serde_json::json!({"device": "metal", "gpu_layers": 28}),
+            serde_json::json!({"device": "metal", "gpu_layers": "28"}),
+        ] {
+            let settings: OpenJevSettings = serde_json::from_value(raw).unwrap();
+            let resolved = resolve(&settings, None, Some(&home())).unwrap();
+            assert_eq!(resolved.gpu_layers, GpuLayersRequested::Count(28));
+        }
+        let settings: OpenJevSettings =
+            serde_json::from_value(serde_json::json!({"device": "cuda", "gpu_layers": "all"}))
+                .unwrap();
+        assert_eq!(
+            resolve(&settings, None, Some(&home())).unwrap().gpu_layers,
+            GpuLayersRequested::All
+        );
+        let settings: OpenJevSettings =
+            serde_json::from_value(serde_json::json!({"device": "metal", "gpu_layers": "many"}))
+                .unwrap();
+        assert!(resolve(&settings, None, Some(&home())).is_err());
     }
 
     #[test]
@@ -338,7 +379,7 @@ mod tests {
         assert!(matches!(
             bad(
                 OpenJevSettings {
-                    gpu_layers: Some("all".into()),
+                    gpu_layers: Some(GpuLayersSetting::Text("all".into())),
                     ..Default::default()
                 },
                 None
