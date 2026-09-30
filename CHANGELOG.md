@@ -20,6 +20,26 @@ workflow.
 
 ### Added
 
+- `vercel` and `openrouter` backend kinds: hosted Jev through Vercel AI
+  Gateway (`https://ai-gateway.vercel.sh/typesafe/v1/systemone`) and
+  OpenRouter (`https://openrouter.ai/api/v1/systemone`). They share the
+  TypeSafe adapter's transport and wire checks (fixed HTTPS destination, one
+  call per request, no redirects or retries, key redaction, strict body
+  validation). OpenRouter's model ID, `usage.cost`, request `id` and serving
+  `provider` are kept; the last two as `x-systemone-provider-request-id` and
+  the new `x-systemone-upstream-provider` header. OpenRouter's catalogue is
+  normalized to System One models. Both are tested against a mock server.
+  OpenRouter was also run live on 2026-09-26 (opt-in smoke test, the CLI and
+  `s1 serve`): `jev-latest` was served as `typesafe/jev-1.13-20260917`, with
+  `usage.cost` about $0.000013 per request and `provider: TypeSafe`.
+  OpenRouter validates more strictly than TypeSafe (instructions required,
+  Noul criteria need both outcomes, Choice criteria must be an object); its
+  400 is passed through. Vercel follows its documented shapes: default model
+  `typesafe-ai/jev` (with a `jev-latest` alias), and `provider_metadata.gateway`
+  cost, generation ID and serving provider mapped into `usage.cost` and the
+  provider headers. Vercel's key and catalogue were checked live; decisions
+  have not been, because the gateway needs a card on file first (#3).
+
 - `kev` backend kind (`systemone-kev` crate): Kev pointer-head decision
   models (jaredpalmer/kev) on Qwen bases through the kev-core runtime
   (kev-rs), behind `kev-cpu` (Candle, Qwen3-generation checkpoints such as
