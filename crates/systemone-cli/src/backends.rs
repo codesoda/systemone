@@ -145,6 +145,22 @@ pub fn configure_all(config: &Config) -> Vec<Configured> {
         .collect()
 }
 
+/// The problems `s1 config check` reports: every configured backend whose
+/// typed settings fail validation. A kind this build does not support is
+/// only a problem when that backend is enabled. `s1 setup` uses the same
+/// list, so the two commands cannot disagree.
+#[must_use]
+pub fn check_problems(config: &Config) -> Vec<String> {
+    configure_all(config)
+        .iter()
+        .filter_map(|instance| match &instance.backend {
+            Err(HostError::Unsupported(_)) if !instance.config.enabled => None,
+            Err(error) => Some(format!("{}: {error}", instance.id)),
+            Ok(_) => None,
+        })
+        .collect()
+}
+
 /// Construct one instance by ID or the default, requiring success.
 pub fn configure_one(config: &Config, selector: Option<&str>) -> Result<Configured, HostError> {
     let id = match selector {

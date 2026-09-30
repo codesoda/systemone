@@ -18,7 +18,6 @@ anyhow = { workspace = true, optional = true }
 gliner2-rs = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 systemone-core.workspace = true
 tracing.workspace = true
 

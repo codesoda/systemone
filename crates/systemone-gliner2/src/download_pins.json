@@ -1,0 +1,146 @@
+{
+  "_source": "codesoda/gliner2-onnx @ 27310cd26099a387b9936a1e13b03d6a0700baf2; generated from the Hub tree and cross-checked against each bundle's export_manifest.json",
+  "profiles": {
+    "small": {
+      "bundle": "gliner2.5-small-v1",
+      "files": [
+        {
+          "path": "config.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-small-v1/config.json",
+          "bytes": 3152,
+          "sha256": "0b7d9e1401ceeb83e992ec66d2f93bff7e5646428f1b4706ec527cf88f53578a"
+        },
+        {
+          "path": "tokenizer.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-small-v1/tokenizer.json",
+          "bytes": 8341713,
+          "sha256": "cbc8ae6037812709c9c26f2a160f8dc48b0440bcb79c8141804259ae2d6adac3"
+        },
+        {
+          "path": "encoder.onnx",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-small-v1/encoder.onnx",
+          "bytes": 283500531,
+          "sha256": "1bbc3846c2bdab94528377754ec492e63eceb38b5599c1196fac97a9f16fe5db"
+        },
+        {
+          "path": "classifier.onnx",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-small-v1/classifier.onnx",
+          "bytes": 1186690,
+          "sha256": "2fa5e9fe06ef2b3252bb2af01ed918f83e63f4ba28f36b158770b50b5aec405a"
+        },
+        {
+          "path": "export_manifest.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-small-v1/export_manifest.json",
+          "bytes": 16719,
+          "sha256": "5c691ff523278268f9046a42e8107c91fc084514f7f3f91cf88fc2fb9eb3e905"
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-small-v1/LICENSE",
+          "bytes": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        },
+        {
+          "path": "NOTICE",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-small-v1/NOTICE",
+          "bytes": 660,
+          "sha256": "3bc09e1a67fdca707f981003954b543242d15a58ab07d4f328b5213bdb624950"
+        }
+      ]
+    },
+    "base": {
+      "bundle": "gliner2.5-base-v1",
+      "files": [
+        {
+          "path": "config.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-base-v1/config.json",
+          "bytes": 3150,
+          "sha256": "0eb92d00584d613aab32b2178f84a85176b62c87ae3689ce9084e83f6eba64d1"
+        },
+        {
+          "path": "tokenizer.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-base-v1/tokenizer.json",
+          "bytes": 8341713,
+          "sha256": "cbc8ae6037812709c9c26f2a160f8dc48b0440bcb79c8141804259ae2d6adac3"
+        },
+        {
+          "path": "encoder.onnx",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-base-v1/encoder.onnx",
+          "bytes": 735961685,
+          "sha256": "04f601e1a63fd829880274e4b61d6ba1d1170c4342cdc956e27aaf50e8b01957"
+        },
+        {
+          "path": "classifier.onnx",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-base-v1/classifier.onnx",
+          "bytes": 4731781,
+          "sha256": "045e94e66de4d8d4d9d267b18bc864328b7661879b7ec149b3e353a94ee1b3ca"
+        },
+        {
+          "path": "export_manifest.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-base-v1/export_manifest.json",
+          "bytes": 16720,
+          "sha256": "b986177cfc3a14e388d03d79b18b040e5873c47ad713e2b68396d3abfbc4ec5c"
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-base-v1/LICENSE",
+          "bytes": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        },
+        {
+          "path": "NOTICE",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-base-v1/NOTICE",
+          "bytes": 659,
+          "sha256": "230d9a8f908b99056d6b965efe5e600a535243f4ff7cc471d539169e8e471b7a"
+        }
+      ]
+    },
+    "multi": {
+      "bundle": "gliner2.5-multi-v1",
+      "files": [
+        {
+          "path": "config.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-multi-v1/config.json",
+          "bytes": 3151,
+          "sha256": "8b59a0f426a65859c89cd1ea850c3529c09aa3be3a6fafd8eddfdd17b1bf0146"
+        },
+        {
+          "path": "tokenizer.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-multi-v1/tokenizer.json",
+          "bytes": 16035853,
+          "sha256": "c62446df87ae18ec98b133f8f84fc449a07cc89bbf8ef192a4cb5f9c53777a7a"
+        },
+        {
+          "path": "encoder.onnx",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-multi-v1/encoder.onnx",
+          "bytes": 1111055957,
+          "sha256": "345c9f767ab4ea91ac675ce7d1ad53a12941b3609539853883556e9b754a9b7a"
+        },
+        {
+          "path": "classifier.onnx",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-multi-v1/classifier.onnx",
+          "bytes": 4731781,
+          "sha256": "b29bf1647f9e40f54a74c8048c1cc6de96a5f6acdf4ac9a293babf99464752d3"
+        },
+        {
+          "path": "export_manifest.json",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-multi-v1/export_manifest.json",
+          "bytes": 16724,
+          "sha256": "ff51c54d0df6b870d204ee569dd6379d6607b43652dc142d1b4433dd277f3179"
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-multi-v1/LICENSE",
+          "bytes": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        },
+        {
+          "path": "NOTICE",
+          "url": "https://huggingface.co/codesoda/gliner2-onnx/resolve/27310cd26099a387b9936a1e13b03d6a0700baf2/gliner2.5-multi-v1/NOTICE",
+          "bytes": 660,
+          "sha256": "7433589b753b45cc58946d61506e0e1d07864c1fbceb06eef4a2b78e14dfd5a3"
+        }
+      ]
+    }
+  }
+}

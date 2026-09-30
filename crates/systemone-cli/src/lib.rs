@@ -8,6 +8,7 @@ pub mod backends;
 pub mod commands;
 pub mod openjev;
 pub mod output;
+pub mod setup;
 
 use std::{
     ffi::OsString,
@@ -183,9 +184,13 @@ pub fn parse(arguments: Vec<OsString>) -> ParseOutcome {
             });
         }
     }
+    // Setup reads and edits the config files itself, so a broken file must
+    // not stop it from starting. It also takes no `--set` overrides (execute
+    // rejects them), so they are not validated against this partial view.
+    let setup = matches!(cli.command, Some(Command::Setup(_)));
     let options = ResolveOptions {
-        no_config: cli.global.no_config,
-        overrides,
+        no_config: cli.global.no_config || setup,
+        overrides: if setup { Vec::new() } else { overrides },
         ..Default::default()
     };
     match systemone_config::resolve(&options) {
@@ -281,12 +286,73 @@ fn execute<R: Read, W: Write, E: Write>(
         Command::Score(args) => {
             commands::score(&resolved, &args, stdin, stdin_is_terminal, stdout, stderr)
         }
+        Command::Setup(args) => {
+            if cli.global.no_config {
+                return Err(CliError::usage(
+                    "s1 setup edits config files; --no-config does not apply",
+                ));
+            }
+            if !cli.global.overrides.is_empty() {
+                return Err(CliError::usage(
+                    "s1 setup edits config files; --set does not apply",
+                ));
+            }
+            return run_setup(
+                &args,
+                stdin_is_terminal,
+                cli.global.pretty.unwrap_or(true),
+                stdout,
+                stderr,
+            );
+        }
         Command::Backends => commands::backends(&resolved, stdout),
         Command::Models(args) => commands::models(&resolved, &args, stdout),
         Command::Config(args) => commands::config(&resolved, &args.command, stdout),
         Command::Openjev(args) => openjev::execute(&resolved, &args, stdout, stderr),
     }
     .map(|()| 0)
+}
+
+fn run_setup<W: Write, E: Write>(
+    args: &args::SetupArgs,
+    stdin_is_terminal: bool,
+    pretty: bool,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> Result<i32, CliError> {
+    use std::io::IsTerminal as _;
+
+    let context = setup::Context::current()?;
+    let mut services = setup::RealServices;
+    let interactive = stdin_is_terminal && std::io::stderr().is_terminal();
+    let summary = if interactive && !args.yes {
+        setup::run(
+            args,
+            &context,
+            &mut setup::prompt::TerminalPrompter::new(),
+            &mut services,
+        )?
+    } else if args.yes {
+        setup::run(
+            args,
+            &context,
+            &mut setup::prompt::DefaultsPrompter::new(&mut *stderr),
+            &mut services,
+        )?
+    } else {
+        return Err(CliError::usage(
+            "s1 setup asks questions and needs a terminal. Without one, pass --yes to accept every default (combine with --kind, --backend, --user or --project), or edit the config file directly; see examples/systemone.config.toml",
+        ));
+    };
+    output::write_json(stdout, &summary, pretty)
+        .map_err(|error| CliError::runtime("output_io", error.to_string()))?;
+    if summary.test == "failed" {
+        return Err(CliError::runtime(
+            "setup_test_failed",
+            "the config was written, but the test decision failed; see the message above",
+        ));
+    }
+    Ok(0)
 }
 
 fn emit_error(writer: &mut impl Write, error: &CliError) -> i32 {

@@ -7,7 +7,6 @@ use gliner2_rs::{
     BundleManifest, BundleStatus, ClassificationPipeline, ClassificationScores, OptimizationLevel,
     RuntimeOptions, bundle::BOUNDARY_MODEL_PINS,
 };
-use sha2::{Digest, Sha256};
 use systemone_core::{
     CallContext, Capabilities, DecisionHost, DecisionRequest, DecisionResponse, HostError,
     ModelIdentity, Primitive, ProviderKind,
@@ -236,28 +235,8 @@ fn verify_against_manifest(
 }
 
 fn sha256_file(path: &Path) -> Result<(u64, String), HostError> {
-    let mut file = fs::File::open(path).map_err(|error| {
-        HostError::unavailable(format!("cannot open {}: {error}", path.display()))
-    })?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 1 << 20];
-    let mut total = 0_u64;
-    loop {
-        let read = file.read(&mut buffer).map_err(|error| {
-            HostError::unavailable(format!("cannot read {}: {error}", path.display()))
-        })?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-        total += read as u64;
-    }
-    let digest = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    Ok((total, digest))
+    systemone_core::hash::sha256_file(path)
+        .map_err(|error| HostError::unavailable(format!("cannot read {}: {error}", path.display())))
 }
 
 impl DecisionHost for Gliner2Host {

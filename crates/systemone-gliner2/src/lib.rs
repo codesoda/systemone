@@ -10,6 +10,7 @@
 //! Adapter policy is documented on [`convert`]. Extraction (entities,
 //! relations, JSON) stays upstream; it is outside the decision contract.
 
+pub mod download;
 pub mod settings;
 
 #[cfg(feature = "gliner2")]

@@ -7,7 +7,7 @@ use std::{
 
 use serde::Serialize;
 use serde_json::Value;
-use systemone_config::Resolved;
+use systemone_config::{Config, Resolved};
 use systemone_core::{
     CallContext, ChoiceQuestion, DecisionHost, DecisionRequest, DecisionResponse, HostError,
     NoulQuestion, Question, ScoreQuestion,
@@ -97,8 +97,8 @@ fn combine_selector(cli: Option<&str>, body: Option<&str>) -> Result<Option<Stri
 }
 
 /// A loaded host plus the identity needed for diagnostics.
-struct Loaded {
-    id: String,
+pub(crate) struct Loaded {
+    pub(crate) id: String,
     host: Box<dyn DecisionHost>,
     timeout: Duration,
 }
@@ -106,8 +106,8 @@ struct Loaded {
 impl Loaded {
     /// Resolve and load the selected backend once. Disabled backends are a
     /// validation error, never a silent skip.
-    fn load(resolved: &Resolved, selector: Option<&str>) -> Result<Self, CliError> {
-        let instance = backends::configure_one(&resolved.config, selector)?;
+    pub(crate) fn load(config: &Config, selector: Option<&str>) -> Result<Self, CliError> {
+        let instance = backends::configure_one(config, selector)?;
         if !instance.config.enabled {
             return Err(CliError::validation(format!(
                 "backend {} is configured but not enabled",
@@ -117,7 +117,7 @@ impl Loaded {
         let backend = instance.backend?;
         Self::from_backend(
             backend.as_ref(),
-            Duration::from_secs(resolved.config.server.request_timeout_secs),
+            Duration::from_secs(config.server.request_timeout_secs),
         )
     }
 
@@ -133,7 +133,7 @@ impl Loaded {
         })
     }
 
-    fn evaluate(
+    pub(crate) fn evaluate(
         &mut self,
         request: &DecisionRequest,
         request_id: &str,
@@ -143,7 +143,7 @@ impl Loaded {
         self.host.evaluate(request, &context)
     }
 
-    fn shutdown(mut self) -> Result<(), CliError> {
+    pub(crate) fn shutdown(mut self) -> Result<(), CliError> {
         self.host.shutdown()?;
         Ok(())
     }
@@ -166,7 +166,7 @@ fn evaluate_once<W: Write, E: Write>(
     stdout: &mut W,
     stderr: &mut E,
 ) -> Result<(), CliError> {
-    let loaded = Loaded::load(resolved, selector)?;
+    let loaded = Loaded::load(&resolved.config, selector)?;
     evaluate_loaded(
         loaded,
         request,
@@ -272,7 +272,7 @@ fn run_jsonl<W: Write, E: Write>(
         )),
         None => JsonlSink::Stdout(stdout),
     };
-    let loaded = Loaded::load(resolved, args.backend.as_deref())?;
+    let loaded = Loaded::load(&resolved.config, args.backend.as_deref())?;
     run_jsonl_loaded(loaded, text, sink, stderr)
 }
 
@@ -697,15 +697,7 @@ pub fn config<W: Write>(
         ConfigCommand::Check => {
             // Structure already validated; now validate every adapter's
             // typed settings without loading anything.
-            let mut problems = Vec::new();
-            for instance in backends::configure_all(&resolved.config) {
-                if let Err(error) = &instance.backend {
-                    match error {
-                        HostError::Unsupported(_) if !instance.config.enabled => {}
-                        _ => problems.push(format!("{}: {error}", instance.id)),
-                    }
-                }
-            }
+            let problems = backends::check_problems(&resolved.config);
             if !problems.is_empty() {
                 return Err(CliError::validation(problems.join("; ")));
             }

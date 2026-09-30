@@ -5,7 +5,14 @@ fn main() -> ExitCode {
     // Resolve config once so output.quiet also controls native logging.
     let parsed = systemone_cli::parse(arguments);
     let quiet = match &parsed {
-        systemone_cli::ParseOutcome::Ready(invocation) => invocation.resolved.config.output.quiet,
+        // Setup draws prompts and progress on stderr; keep logs out of them.
+        systemone_cli::ParseOutcome::Ready(invocation) => {
+            invocation.resolved.config.output.quiet
+                || matches!(
+                    invocation.cli.command,
+                    Some(systemone_cli::args::Command::Setup(_))
+                )
+        }
         _ => false,
     };
     let subscriber = tracing_subscriber::fmt()

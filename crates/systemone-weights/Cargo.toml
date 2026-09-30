@@ -1,6 +1,6 @@
 [package]
-name = "systemone-core"
-description = "Neutral typed-decision contracts shared by SystemOne hosts, the HTTP service and the CLI"
+name = "systemone-weights"
+description = "Verified downloads of pinned model files for SystemOne backends"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,9 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
+fs4.workspace = true
+reqwest.workspace = true
 sha2.workspace = true
+systemone-core.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
